@@ -3,6 +3,8 @@ version: '3'
 # Fuck.
 services:
   introducer:
+    environment:
+      - INTRODUCER=1
     build: .
     ports:
       - "5000:5000"
