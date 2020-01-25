@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 )
@@ -12,12 +13,12 @@ type configParam struct {
 }
 
 // Introducer grabs the address of our introducer node.
-func Introducer() (string, error) {
+func Introducer() string {
 	configParams, err := parseJSON(os.Getenv("CONFIG"))
 	if err != nil {
-		return "", err
+		log.Fatal(err)
 	}
-	return configParams.Introducer, nil
+	return configParams.Introducer
 }
 
 func parseJSON(fileName string) (configParam, error) {
