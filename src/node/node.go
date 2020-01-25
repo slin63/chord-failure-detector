@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"../config"
+	"../hashing"
 )
 
 type MemberNode struct {
@@ -18,7 +19,10 @@ type MemberNode struct {
 }
 
 var me MemberNode
-var selfIp string
+var selfIP string
+var selfPID int
+
+const heartbeatPort = 5001
 
 // var introducer *net.UDPConn
 
@@ -34,9 +38,10 @@ func joinNetwork() {
 }
 
 func Live(introducer bool) {
-	me = &MonitorNode{}
-	selfIp = getSelfIP()
-	log.Println(selfIp)
+	log.Printf("%s:%d", getSelfIP(), heartbeatPort)
+	log.Println(selfIP)
+	selfPID = hashing.GetPID(selfIP)
+	log.Println(selfPID)
 
 	for {
 		if !introducer {
