@@ -1,34 +1,12 @@
 version: '3'
 
-# Spin up 5 different services to emulate 5 different remote machines.
+# Fuck.
 services:
-  machine1:
-    environment:
-      - MACHINEID=1
+  introducer:
+    build: .
+    ports:
+      - "5000:5000"
+  machine0:
     build: .
     ports:
       - "8000:8080"
-  machine2:
-    environment:
-      - MACHINEID=2
-    build: .
-    ports:
-      - "8001:8080"
-  machine3:
-    environment:
-      - MACHINEID=3
-    build: .
-    ports:
-      - "8002:8080"
-  machine4:
-    environment:
-      - MACHINEID=4
-    build: .
-    ports:
-      - "8003:8080"
-  machine5:
-    environment:
-      - MACHINEID=5
-    build: .
-    ports:
-      - "8004:8080"

@@ -12,10 +12,10 @@ type configParam struct {
 }
 
 // Introducer grabs the address of our introducer node.
-func Introducer() ([]string, error) {
+func Introducer() (string, error) {
 	configParams, err := parseJSON(os.Getenv("CONFIG"))
 	if err != nil {
-		return make([]string, 0), err
+		return "", err
 	}
 	return configParams.Introducer, nil
 }
