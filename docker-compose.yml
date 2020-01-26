@@ -3,12 +3,15 @@ version: '3'
 # Fuck.
 services:
   introducer:
+    container_name: introducer
     environment:
       - INTRODUCER=1
-    build: .
     ports:
-      - "5000:5000"
+      - "6000:6000"
+      build: .
+
   machine0:
+    // Would like to use ./wait-for-it.sh but have no idea how to get containers to be able to curl each other??
+    depends_on:
+      - "introducer"
     build: .
-    ports:
-      - "8000:8080"

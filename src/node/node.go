@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -22,8 +23,7 @@ type MemberNode struct {
 var selfIP string
 var selfPID int
 
-const introducerPort = 6002
-const heartbeatPort = 6001
+const port = 6000
 
 var introducerAddr net.UDPAddr
 var heartbeatAddr net.UDPAddr
@@ -42,38 +42,31 @@ func Live(introducer bool, logf string) {
 		log.Fatalf("error opening file: %v", err)
 	}
 	defer f.Close()
+	mw := io.MultiWriter(os.Stdout, f)
+	log.SetOutput(mw)
 
-	log.SetOutput(f)
-
-	if !introducer {
-		introducerAddr = net.UDPAddr{
-			IP:   net.ParseIP(config.Introducer()),
-			Port: introducerPort,
-		}
-		joinNetwork()
-	} else {
-		introducerAddr = net.UDPAddr{
-			IP:   net.ParseIP(selfIP),
-			Port: introducerPort,
-		}
-		go listenForIntroductions()
-	}
-
-	// TODO: does this really need to be so large?
 	heartbeatAddr = net.UDPAddr{
 		IP:   net.ParseIP(selfIP),
-		Port: heartbeatPort,
+		Port: port,
 	}
 
+	// Join the network if you're not the introducer
+	if !introducer {
+		joinNetwork()
+	}
+
+	// Listen for messages
+	go listen()
+
 	wg.Wait()
-	// go listenForHeartbeat()
 }
 
-// todo move listen loops to own package
-func listenForIntroductions() {
+// listen will eventually need to listen for everything, but for now:
+// just need: network joins, heartbeats
+func listen() {
 	p := make([]byte, 2048)
 
-	ser, err := net.ListenUDP("udp", &introducerAddr)
+	ser, err := net.ListenUDP("udp", &heartbeatAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -88,27 +81,10 @@ func listenForIntroductions() {
 	}
 }
 
-func listenForHeartbeat() {
-	p := make([]byte, 2048)
-
-	ser, err := net.ListenUDP("udp", &heartbeatAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Begin the UDP listen loop
-	for {
-		_, remoteaddr, err := ser.ReadFromUDP(p)
-		log.Println("Read a message from %v %s \n", remoteaddr, p)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-}
-
 func joinNetwork() {
 	// dial the introducer, send a message
-	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", introducerAddr.IP, introducerAddr.Port))
+	log.Printf("Joining via introducer at %s:%d", config.Introducer(), port)
+	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", config.Introducer(), port))
 	if err != nil {
 		log.Fatal(err)
 	}
