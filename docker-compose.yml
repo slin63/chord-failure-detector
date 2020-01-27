@@ -8,10 +8,16 @@ services:
       - INTRODUCER=1
     ports:
       - "6000:6000"
-      build: .
+      - "6001:6001"
+    build: .
 
-  machine0:
-    // Would like to use ./wait-for-it.sh but have no idea how to get containers to be able to curl each other??
+  # Would like to use ./wait-for-it.sh but have no idea how to get containers to be able to curl each other
+  pizza:
     depends_on:
       - "introducer"
     build: .
+
+  # pepperoni:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .

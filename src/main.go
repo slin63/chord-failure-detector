@@ -18,6 +18,5 @@ func main() {
 	}
 	flag.Parse()
 
-	log.Println(isIntroducer)
 	node.Live(isIntroducer, logf)
 }
