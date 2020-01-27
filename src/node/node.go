@@ -96,7 +96,12 @@ func listenForJoins() {
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
 			}
-			log.Printf("[JOIN] (IP=%s) (PID=%d) joined network", remoteaddr.IP.String(), newPID)
+			log.Printf(
+				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network",
+				newPID,
+				(*memberMap[newPID]).IP,
+				(*memberMap[newPID]).Timestamp,
+			)
 
 			// Send the joiner a membership map so that it can discover more peers.
 			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
@@ -133,10 +138,9 @@ func listen() {
 		// We successfully joined the network
 		// Decode the membership gob and merge with our own membership list.
 		case spec.JOINREPLY:
-			log.Println("[JOINREPLY] Successfully joined network")
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
-			log.Println(theirMemberMap)
+			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
 		}
 	}
 }

@@ -67,6 +67,18 @@ func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode
 }
 
 // Merge two membership maps, preserving entries with the latest timestamp
+// Something in theirs but not in ours?
+//   - timestamp(theirs) > timestamp(ours) => keep
+//   - alive(theirs) == false => update ours.alive
 func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
-	// TODO
+	for k, v := range *theirs {
+		_, exists := (*ours)[k]
+		if exists {
+			if (*theirs)[k].Timestamp > (*ours)[k].Timestamp {
+				(*ours)[k] = v
+			}
+		} else {
+			(*ours)[k] = v
+		}
+	}
 }
