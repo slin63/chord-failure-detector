@@ -5,14 +5,12 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
-	"strconv"
-	"strings"
 	"time"
 )
 
 const (
 	JOIN = iota
-	MEMBERSHIP
+	JOINREPLY
 )
 const delimiter = ","
 
@@ -29,18 +27,34 @@ func ReportOnline(IP string, PID int, isIntroducer bool) {
 
 // TODO We should get mut-exes on things touching the membership map.
 
-// Serialize the memberMap for messaging
-// https://stackoverflow.com/questions/19762413/how-to-serialize-deserialize-a-map-in-go
-func SerializeMemberMap(memberMap *map[int]*MemberNode) []byte {
+// Encode the memberMap for messaging
+// https://stackoverflow.com/questions/19762413/how-to-Encode-deEncode-a-map-in-go
+func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	b := new(bytes.Buffer)
 	e := gob.NewEncoder(b)
 
 	// Encoding the map
 	err := e.Encode(memberMap)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return b.Bytes()
+}
+
+func DecodeMemberMap(b []byte) map[int]*MemberNode {
+	buf := bytes.NewBuffer(b)
+
+	var decodedMap map[int]*MemberNode
+	d := gob.NewDecoder(buf)
+
+	// Decoding the serialized data
+	err := d.Decode(&decodedMap)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("%#v\n", decodedMap)
+	return decodedMap
 }
 
 // Refresh the self node's entry inside the membership table
@@ -52,16 +66,7 @@ func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode
 	}
 }
 
-// Compare a string to an ennumerable
-func C(s string, enum int) bool {
-	sc, err := strconv.Atoi(s)
-	if err != nil {
-		log.Fatal("Invalid message code: ", s)
-	}
-	return sc == enum
-}
-
-// Parse a []byte to a string array
-func P(b []byte) []string {
-	return strings.Split(fmt.Sprintf("%s", b), delimiter)
+// Merge two membership maps, preserving entries with the latest timestamp
+func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
+	// TODO
 }

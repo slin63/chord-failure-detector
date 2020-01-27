@@ -1,11 +1,13 @@
 package node
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -79,8 +81,14 @@ func listenForJoins() {
 		}
 
 		// Check if message code == JOIN
-		var s []string = spec.P(p)
-		if spec.C(s[0], spec.JOIN) {
+		var bb [][]byte = bytes.Split(p, []byte(","))
+		replyCode, err := strconv.Atoi(string(bb[0][0]))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		switch replyCode {
+		case spec.JOIN:
 			// Update our own member map
 			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
 			memberMap[newPID] = &spec.MemberNode{
@@ -94,13 +102,12 @@ func listenForJoins() {
 			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
 			sendMessage(
 				newPID,
-				fmt.Sprintf("%d,%s", spec.MEMBERSHIP, spec.SerializeMemberMap(&memberMap)),
+				fmt.Sprintf("%d,%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
 			)
 		}
 	}
 }
 
-// listen will eventually need to listen for everything, but for now:
 func listen() {
 	p := make([]byte, 2048)
 
@@ -109,13 +116,28 @@ func listen() {
 		log.Fatal(err)
 	}
 
-	// Begin the UDP listen loop
 	for {
-		_, remoteaddr, err := ser.ReadFromUDP(p)
+		_, _, err := ser.ReadFromUDP(p)
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("listen: Read a message from %v %s \n", remoteaddr, p)
+
+		// Identify appropriate protocol via message code and react
+		var bb [][]byte = bytes.Split(p, []byte(","))
+		replyCode, err := strconv.Atoi(string(bb[0][0]))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		switch replyCode {
+		// We successfully joined the network
+		// Decode the membership gob and merge with our own membership list.
+		case spec.JOINREPLY:
+			log.Println("[JOINREPLY] Successfully joined network")
+			theirMemberMap := spec.DecodeMemberMap(bb[1])
+			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
+			log.Println(theirMemberMap)
+		}
 	}
 }
 
