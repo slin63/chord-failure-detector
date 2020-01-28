@@ -40,12 +40,10 @@ func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	if err != nil {
 		log.Fatal("EncodeMemberMap():", err)
 	}
-	log.Printf("EncodeMemberMap(): %s", b.String())
 	return b.Bytes()
 }
 
 func DecodeMemberMap(b []byte) map[int]*MemberNode {
-	log.Printf("DecodeMemberMap(): (len(b) = %v)", len(b))
 	buf := bytes.NewBuffer(b)
 	gob.Register(MemberNode{})
 
@@ -131,17 +129,18 @@ func Disseminate(
 		targets := GetTargets(selfPID, fingertable, &monitors)
 		log.Println("Disseminate(): monitors", monitors)
 		log.Println("target", targets)
-		// TODO: uncomment
-		// for _, PID := range targets {
-		// 	sendMessage(PID, message)
-		// }
+		// TODO: uncomment && write receiver code
+		for _, PID := range targets {
+			sendMessage(PID, message)
+		}
 	}
 }
 
 func GetTargets(selfPID int, fingertable *map[int]int, monitors *[]int) []int {
 	var targets []int
 	for _, PID := range *fingertable {
-		if PID != selfPID && (index(*monitors, PID) != -1) && (index(targets, PID) != -1) {
+		// NOT its own PID AND monitors DOESN'T contain this PID AND targets DOESN'T contain this PID
+		if PID != selfPID && (index(*monitors, PID) == -1) && (index(targets, PID) == -1) {
 			targets = append(targets, PID)
 		}
 	}

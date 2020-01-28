@@ -16,6 +16,8 @@ import (
 	"../spec"
 )
 
+var fuc = log.Printf
+
 var selfIP string
 var selfPID int
 var mux = &sync.Mutex{}
@@ -158,7 +160,6 @@ func listen() {
 
 		// Identify appropriate protocol via message code and react
 		var bb [][]byte = bytes.Split(p, []byte(delimiter))
-		log.Printf("listen(): len(bb) = %v", len(bb))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
 			log.Fatal(err)
@@ -172,7 +173,10 @@ func listen() {
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
+		default:
+			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
+
 	}
 }
 
@@ -182,7 +186,7 @@ func dispatchBufferedMessages() {
 			for pid := range joinReplyChan {
 				sendMessage(
 					pid,
-					fmt.Sprintf("%d//%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
+					fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
 				)
 			}
 		}
@@ -193,7 +197,7 @@ func dispatchBufferedMessages() {
 func heartbeat() {
 	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
 		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
-		message := fmt.Sprintf("%d//%s", spec.HEARTBEAT, spec.EncodeMemberMap(&memberMap))
+		message := fmt.Sprintf("%d%s%s", spec.HEARTBEAT, delimiter, spec.EncodeMemberMap(&memberMap))
 		spec.Disseminate(
 			message,
 			m,
@@ -210,7 +214,7 @@ func joinNetwork() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Fprintf(conn, "%d,junk0,junk1", spec.JOIN)
+	fmt.Fprintf(conn, "%d", spec.JOIN)
 	conn.Close()
 }
 
