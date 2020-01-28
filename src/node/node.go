@@ -26,10 +26,12 @@ var fingerTable = make(map[int]int)
 
 var joinReplyChan = make(chan int, 10)
 var joinInterval = 5
+var heartbeatInterval = 5
 
-const m int = 7
+const m int = 8
 const introducerPort = 6001
 const port = 6000
+const delimiter = ","
 
 var heartbeatAddr net.UDPAddr
 
@@ -66,12 +68,17 @@ func Live(introducer bool, logf string) {
 	// Listen for messages
 	go listen()
 
-	// Dispatch messages as needed
-	go dispatchMessages()
+	// Beat that drum
+	go heartbeat()
+
+	// Dispatch buffered messages as needed
+	//   - JOINREPLYs
+	go dispatchBufferedMessages()
 
 	wg.Wait()
 }
 
+// Listen function specifically for JOINs.
 func listenForJoins() {
 	p := make([]byte, 2048)
 	ser, err := net.ListenUDP("udp", &net.UDPAddr{
@@ -90,7 +97,7 @@ func listenForJoins() {
 		}
 
 		// Check if message code == JOIN
-		var bb [][]byte = bytes.Split(p, []byte(","))
+		var bb [][]byte = bytes.Split(p, []byte(delimiter))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
 			log.Fatal(err)
@@ -121,6 +128,8 @@ func listenForJoins() {
 	}
 }
 
+// Listen function to handle:
+//   - HEARTBEAT
 func listen() {
 	p := make([]byte, 2048)
 
@@ -136,7 +145,7 @@ func listen() {
 		}
 
 		// Identify appropriate protocol via message code and react
-		var bb [][]byte = bytes.Split(p, []byte(","))
+		var bb [][]byte = bytes.Split(p, []byte(delimiter))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
 			log.Fatal(err)
@@ -153,7 +162,7 @@ func listen() {
 	}
 }
 
-func dispatchMessages() {
+func dispatchBufferedMessages() {
 	go func() {
 		for range time.Tick(time.Second * time.Duration(joinInterval)) {
 			for pid := range joinReplyChan {
@@ -164,6 +173,22 @@ func dispatchMessages() {
 			}
 		}
 	}()
+}
+
+// Periodically send out heartbeat messages with piggybacked membership map info.
+func heartbeat() {
+	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
+		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
+		message := fmt.Sprintf("%d,%s", spec.HEARTBEAT, spec.EncodeMemberMap(&memberMap))
+		spec.Disseminate(
+			message,
+			m,
+			selfPID,
+			&fingerTable,
+			&memberMap,
+			sendMessage,
+		)
+	}
 }
 
 func joinNetwork() {

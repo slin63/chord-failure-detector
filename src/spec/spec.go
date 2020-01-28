@@ -11,8 +11,8 @@ import (
 const (
 	JOIN = iota
 	JOINREPLY
+	HEARTBEAT
 )
-const delimiter = ","
 
 type MemberNode struct {
 	// Address info formatted ip_address
@@ -24,8 +24,6 @@ type MemberNode struct {
 func ReportOnline(IP string, PID int, isIntroducer bool) {
 	log.Printf("[%s:%d]@%d (INTRODUCER=%v) // ONLINE", IP, PID, time.Now().Unix(), isIntroducer)
 }
-
-// TODO We should get mut-exes on things touching the membership map.
 
 // Encode the memberMap for messaging
 // https://stackoverflow.com/questions/19762413/how-to-Encode-deEncode-a-map-in-go
@@ -121,4 +119,48 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 			}
 		}
 	}
+}
+
+func Disseminate(
+	message string,
+	m int,
+	selfPID int,
+	fingertable *map[int]int,
+	memberMap *map[int]*MemberNode,
+	sendMessage func(int, string),
+) {
+	// identify predecessor & 2 successors
+	if len(*memberMap) > 1 {
+		GetPredecessor(selfPID, m, memberMap)
+	}
+
+}
+
+// Identify the PID of node directly behind the self node
+func GetPredecessor(selfPID, m int, memberMap *map[int]*MemberNode) int {
+	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
+	var PIDs []int
+	var PIDsExtended []int
+	for PID := range *memberMap {
+		PIDs = append(PIDs, PID)
+		PIDsExtended = append(PIDsExtended, PID+(1<<m))
+	}
+	PIDs = append(PIDs, PIDsExtended...)
+	sort.Ints(PIDs)
+
+	// Predecessor PID is PID directly behind the selfPID in the extended ring
+	// IDs[index(selfPID + 2^m) - 1] mod 2^m
+	predPID := PIDs[index(PIDs, selfPID+(1<<m))-1] % (1 << m)
+	log.Printf("Predecessor(): (selfPID=%v) (predPID=%v)", selfPID, predPID)
+
+	return predPID
+}
+
+func index(a []int, val int) int {
+	for i, v := range a {
+		if v == val {
+			return i
+		}
+	}
+	return -1
 }
