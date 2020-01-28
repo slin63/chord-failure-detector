@@ -3,8 +3,8 @@ package spec
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
 	"log"
+	"sort"
 	"time"
 )
 
@@ -53,7 +53,6 @@ func DecodeMemberMap(b []byte) map[int]*MemberNode {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("%#v\n", decodedMap)
 	return decodedMap
 }
 
@@ -79,6 +78,47 @@ func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
 			}
 		} else {
 			(*ours)[k] = v
+		}
+	}
+}
+
+func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID, m int) {
+	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
+	var PIDs []int
+	var PIDsExtended []int
+	for PID := range *memberMap {
+		if PID != selfPID {
+			PIDs = append(PIDs, PID)
+			PIDsExtended = append(PIDsExtended, PID+(1<<m))
+		}
+	}
+	PIDs = append(PIDs, PIDsExtended...)
+	sort.Ints(PIDs)
+
+	// Generate the indices for the finger table.
+	var iths []int
+	for i := 0; i < m-1; i++ {
+		iths = append(iths, selfPID+(1<<i)%(1<<m))
+	}
+	sort.Ints(iths)
+	// log.Println("doing fingertable FINGERS with selfPID: ", selfPID)
+	// log.Println(PIDs)
+	// log.Println(iths)
+
+	// Map the indices for each finger table with its corresponding (closest but greater value mod 128)
+	var last int = 0
+	for _, ith := range iths {
+		for ; last < len(PIDs); last++ {
+			PID := PIDs[last]
+			// log.Println("ith", ith)
+			// log.Println("PID", PID)
+
+			if (ith - PID) < 0 {
+				(*ft)[ith] = PID % (1 << m)
+				// log.Printf("found a match! (ith=%v) (PID=%v) (ith - PID = %v)", ith, PID, ith-PID)
+				// log.Printf("remaining PIDs: %v", PIDs[last:])
+				break
+			}
 		}
 	}
 }

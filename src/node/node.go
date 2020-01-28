@@ -18,8 +18,11 @@ import (
 
 var selfIP string
 var selfPID int
+var mux = &sync.Mutex{}
 
+// Update memberMaps / ft whenever we receive a "fresh" copy of the memberMap
 var memberMap = make(map[int]*spec.MemberNode)
+var fingerTable = make(map[int]int)
 
 const m int = 7
 const introducerPort = 6001
@@ -96,15 +99,22 @@ func listenForJoins() {
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
 			}
+
+			// TODO:
+			// Code here to wait until at least x seconds before sending out message, because introducer gets flooded with joins
+			// or send in 5 second blocks? so that users get an up to date membership list if someone else joins a split second after
+			// they send their join request
+			// Send the joiner a membership map so that it can discover more peers.
+			// mux.Lock()
+			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
+			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
-				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network",
+				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network. Added to memberMap & FT.",
 				newPID,
 				(*memberMap[newPID]).IP,
 				(*memberMap[newPID]).Timestamp,
 			)
 
-			// Send the joiner a membership map so that it can discover more peers.
-			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
 			sendMessage(
 				newPID,
 				fmt.Sprintf("%d,%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),

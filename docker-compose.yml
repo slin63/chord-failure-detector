@@ -17,7 +17,22 @@ services:
       - "introducer"
     build: .
 
-  # pepperoni:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
+  pepperoni:
+    depends_on:
+      - "introducer"
+    build: .
+
+  calzone:
+    depends_on:
+      - "introducer"
+    build: .
+
+  lajiao:
+    depends_on:
+      - "introducer"
+    build: .
+
+  mala:
+    depends_on:
+      - "introducer"
+    build: .
