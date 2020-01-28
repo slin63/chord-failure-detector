@@ -24,6 +24,9 @@ var mux = &sync.Mutex{}
 var memberMap = make(map[int]*spec.MemberNode)
 var fingerTable = make(map[int]int)
 
+var joinReplyChan = make(chan int, 10)
+var joinInterval = 5
+
 const m int = 7
 const introducerPort = 6001
 const port = 6000
@@ -63,6 +66,9 @@ func Live(introducer bool, logf string) {
 	// Listen for messages
 	go listen()
 
+	// Dispatch messages as needed
+	go dispatchMessages()
+
 	wg.Wait()
 }
 
@@ -92,20 +98,13 @@ func listenForJoins() {
 
 		switch replyCode {
 		case spec.JOIN:
-			// Update our own member map
+			// Update our own member map & fts
 			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
 			memberMap[newPID] = &spec.MemberNode{
 				IP:        remoteaddr.IP.String(),
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
 			}
-
-			// TODO:
-			// Code here to wait until at least x seconds before sending out message, because introducer gets flooded with joins
-			// or send in 5 second blocks? so that users get an up to date membership list if someone else joins a split second after
-			// they send their join request
-			// Send the joiner a membership map so that it can discover more peers.
-			// mux.Lock()
 			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
@@ -115,10 +114,9 @@ func listenForJoins() {
 				(*memberMap[newPID]).Timestamp,
 			)
 
-			sendMessage(
-				newPID,
-				fmt.Sprintf("%d,%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
-			)
+			// Add message to queue:
+			// Send the joiner a membership map so that it can discover more peers.
+			joinReplyChan <- newPID
 		}
 	}
 }
@@ -153,6 +151,19 @@ func listen() {
 			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
 		}
 	}
+}
+
+func dispatchMessages() {
+	go func() {
+		for range time.Tick(time.Second * time.Duration(joinInterval)) {
+			for pid := range joinReplyChan {
+				sendMessage(
+					pid,
+					fmt.Sprintf("%d,%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
+				)
+			}
+		}
+	}()
 }
 
 func joinNetwork() {
