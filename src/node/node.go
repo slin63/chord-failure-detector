@@ -107,6 +107,18 @@ func listenForJoins() {
 		case spec.JOIN:
 			// Update our own member map & fts
 			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
+
+			// Check for potential collisions / outdated memberMap
+			if node, exists := memberMap[newPID]; exists {
+				log.Fatalf(
+					"[COLLISION] PID %v for %v collides with existing node at %v. Try raising m to allocate more ring positions. (m=%v)",
+					newPID,
+					remoteaddr,
+					node.IP,
+					m,
+				)
+			}
+
 			memberMap[newPID] = &spec.MemberNode{
 				IP:        remoteaddr.IP.String(),
 				Timestamp: time.Now().Unix(),
