@@ -36,3 +36,24 @@ services:
     depends_on:
       - "introducer"
     build: .
+
+  spicypeanuts:
+    depends_on:
+      - "introducer"
+    build: .
+
+  chocolatealmonds:
+    depends_on:
+      - "introducer"
+    build: .
+
+
+  highfibercereal:
+    depends_on:
+      - "introducer"
+    build: .
+
+  hempmilk:
+    depends_on:
+      - "introducer"
+    build: .

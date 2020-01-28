@@ -25,13 +25,13 @@ var memberMap = make(map[int]*spec.MemberNode)
 var fingerTable = make(map[int]int)
 
 var joinReplyChan = make(chan int, 10)
-var joinInterval = 5
-var heartbeatInterval = 5
+var joinInterval = 2
+var heartbeatInterval = 2
 
-const m int = 8
+const m int = 7
 const introducerPort = 6001
 const port = 6000
-const delimiter = ","
+const delimiter = "//"
 
 var heartbeatAddr net.UDPAddr
 
@@ -158,6 +158,7 @@ func listen() {
 
 		// Identify appropriate protocol via message code and react
 		var bb [][]byte = bytes.Split(p, []byte(delimiter))
+		log.Printf("listen(): len(bb) = %v", len(bb))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
 			log.Fatal(err)
@@ -181,7 +182,7 @@ func dispatchBufferedMessages() {
 			for pid := range joinReplyChan {
 				sendMessage(
 					pid,
-					fmt.Sprintf("%d,%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
+					fmt.Sprintf("%d//%s", spec.JOINREPLY, spec.EncodeMemberMap(&memberMap)),
 				)
 			}
 		}
@@ -192,7 +193,7 @@ func dispatchBufferedMessages() {
 func heartbeat() {
 	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
 		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
-		message := fmt.Sprintf("%d,%s", spec.HEARTBEAT, spec.EncodeMemberMap(&memberMap))
+		message := fmt.Sprintf("%d//%s", spec.HEARTBEAT, spec.EncodeMemberMap(&memberMap))
 		spec.Disseminate(
 			message,
 			m,

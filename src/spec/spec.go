@@ -21,6 +21,10 @@ type MemberNode struct {
 	Alive     bool
 }
 
+// func init() {
+// 	gob.Register(MemberNode{})
+// }
+
 func ReportOnline(IP string, PID int, isIntroducer bool) {
 	log.Printf("[%s:%d]@%d (INTRODUCER=%v) // ONLINE", IP, PID, time.Now().Unix(), isIntroducer)
 }
@@ -32,15 +36,18 @@ func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	e := gob.NewEncoder(b)
 
 	// Encoding the map
-	err := e.Encode(memberMap)
+	err := e.Encode(*memberMap)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("EncodeMemberMap():", err)
 	}
+	log.Printf("EncodeMemberMap(): %s", b.String())
 	return b.Bytes()
 }
 
 func DecodeMemberMap(b []byte) map[int]*MemberNode {
+	log.Printf("DecodeMemberMap(): (len(b) = %v)", len(b))
 	buf := bytes.NewBuffer(b)
+	gob.Register(MemberNode{})
 
 	var decodedMap map[int]*MemberNode
 	d := gob.NewDecoder(buf)
@@ -48,7 +55,7 @@ func DecodeMemberMap(b []byte) map[int]*MemberNode {
 	// Decoding the serialized data
 	err := d.Decode(&decodedMap)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("DecodeMemberMap():", err)
 	}
 
 	return decodedMap
@@ -116,10 +123,30 @@ func Disseminate(
 	memberMap *map[int]*MemberNode,
 	sendMessage func(int, string),
 ) {
-	// identify predecessor & 2 successors
 	if len(*memberMap) > 1 {
-		GetMonitors(selfPID, m, memberMap)
+		// Identify predecessor & 2 successors, or less if not available
+		monitors := GetMonitors(selfPID, m, memberMap)
+
+		// Mix monitors with targets in fingertable
+		targets := GetTargets(selfPID, fingertable, &monitors)
+		log.Println("Disseminate(): monitors", monitors)
+		log.Println("target", targets)
+		// TODO: uncomment
+		// for _, PID := range targets {
+		// 	sendMessage(PID, message)
+		// }
 	}
+}
+
+func GetTargets(selfPID int, fingertable *map[int]int, monitors *[]int) []int {
+	var targets []int
+	for _, PID := range *fingertable {
+		if PID != selfPID && (index(*monitors, PID) != -1) && (index(targets, PID) != -1) {
+			targets = append(targets, PID)
+		}
+	}
+
+	return append(targets, *monitors...)
 }
 
 // Identify the PID of node directly behind the self node
@@ -150,10 +177,7 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 		}
 	}
 
-	log.Printf(
-		"GetMonitors(): (monitors=%v)",
-		monitors,
-	)
+	// log.Printf("GetMonitors(): (monitors=%v)", monitors)
 	return monitors
 }
 
