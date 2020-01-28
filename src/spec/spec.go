@@ -93,28 +93,15 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 	PIDs = append(PIDs, PIDsExtended...)
 	sort.Ints(PIDs)
 
-	// Generate the indices for the finger table.
-	var iths []int
-	for i := 0; i < m-1; i++ {
-		iths = append(iths, selfPID+(1<<i)%(1<<m))
-	}
-	sort.Ints(iths)
-	// log.Println("doing fingertable FINGERS with selfPID: ", selfPID)
-	// log.Println(PIDs)
-	// log.Println(iths)
-
-	// Map the indices for each finger table with its corresponding (closest but greater value mod 2^m)
+	// Populate the finger table.
 	var last int = 0
-	for _, ith := range iths {
+	for i := 0; i < m-1; i++ {
+		ith := selfPID + (1<<i)%(1<<m)
 		for ; last < len(PIDs); last++ {
 			PID := PIDs[last]
-			// log.Println("ith", ith)
-			// log.Println("PID", PID)
 
 			if (ith - PID) < 0 {
 				(*ft)[ith] = PID % (1 << m)
-				// log.Printf("found a match! (ith=%v) (PID=%v) (ith - PID = %v)", ith, PID, ith-PID)
-				// log.Printf("remaining PIDs: %v", PIDs[last:])
 				break
 			}
 		}
@@ -133,7 +120,6 @@ func Disseminate(
 	if len(*memberMap) > 1 {
 		GetPredecessor(selfPID, m, memberMap)
 	}
-
 }
 
 // Identify the PID of node directly behind the self node

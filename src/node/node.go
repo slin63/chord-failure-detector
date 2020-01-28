@@ -68,8 +68,8 @@ func Live(introducer bool, logf string) {
 	// Listen for messages
 	go listen()
 
-	// Beat that drum
-	go heartbeat()
+	// // Beat that drum
+	// go heartbeat()
 
 	// Dispatch buffered messages as needed
 	//   - JOINREPLYs
@@ -169,6 +169,7 @@ func listen() {
 		case spec.JOINREPLY:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
+			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
 		}
 	}
