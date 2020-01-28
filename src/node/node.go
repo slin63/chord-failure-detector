@@ -68,8 +68,8 @@ func Live(introducer bool, logf string) {
 	// Listen for messages
 	go listen()
 
-	// // Beat that drum
-	// go heartbeat()
+	// Beat that drum
+	go heartbeat()
 
 	// Dispatch buffered messages as needed
 	//   - JOINREPLYs

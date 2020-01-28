@@ -118,12 +118,12 @@ func Disseminate(
 ) {
 	// identify predecessor & 2 successors
 	if len(*memberMap) > 1 {
-		GetPredecessor(selfPID, m, memberMap)
+		GetMonitors(selfPID, m, memberMap)
 	}
 }
 
 // Identify the PID of node directly behind the self node
-func GetPredecessor(selfPID, m int, memberMap *map[int]*MemberNode) int {
+func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
 	var PIDsExtended []int
@@ -135,11 +135,26 @@ func GetPredecessor(selfPID, m int, memberMap *map[int]*MemberNode) int {
 	sort.Ints(PIDs)
 
 	// Predecessor PID is PID directly behind the selfPID in the extended ring
-	// IDs[index(selfPID + 2^m) - 1] mod 2^m
-	predPID := PIDs[index(PIDs, selfPID+(1<<m))-1] % (1 << m)
-	log.Printf("Predecessor(): (selfPID=%v) (predPID=%v)", selfPID, predPID)
+	// Successor PID directly ahead, and so forth
+	// (1 << m == 2^m)
+	var monitors []int
+	selfIdx := index(PIDs, selfPID+(1<<m))
+	predIdx := (selfIdx - 1) % len(PIDs)
+	succIdx := (selfIdx + 1) % len(PIDs)
+	succ2Idx := (selfIdx + 2) % len(PIDs)
 
-	return predPID
+	for _, idx := range []int{predIdx, succIdx, succ2Idx} {
+		PID := PIDs[idx] % (1 << m)
+		if index(monitors, PID) == -1 && PID != selfPID {
+			monitors = append(monitors, PID)
+		}
+	}
+
+	log.Printf(
+		"GetMonitors(): (monitors=%v)",
+		monitors,
+	)
+	return monitors
 }
 
 func index(a []int, val int) int {

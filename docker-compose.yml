@@ -17,7 +17,7 @@ services:
       - "introducer"
     build: .
 
-  pepperoni:
+  wasabipeas:
     depends_on:
       - "introducer"
     build: .
