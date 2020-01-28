@@ -105,7 +105,7 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 	// log.Println(PIDs)
 	// log.Println(iths)
 
-	// Map the indices for each finger table with its corresponding (closest but greater value mod 128)
+	// Map the indices for each finger table with its corresponding (closest but greater value mod 2^m)
 	var last int = 0
 	for _, ith := range iths {
 		for ; last < len(PIDs); last++ {
