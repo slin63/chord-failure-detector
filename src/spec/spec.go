@@ -11,6 +11,7 @@ import (
 const (
 	JOIN = iota
 	JOINREPLY
+	LEAVE
 	HEARTBEAT
 )
 
@@ -20,10 +21,6 @@ type MemberNode struct {
 	Timestamp int64
 	Alive     bool
 }
-
-// func init() {
-// 	gob.Register(MemberNode{})
-// }
 
 func ReportOnline(IP string, PID int, isIntroducer bool) {
 	log.Printf("[%s:%d]@%d (INTRODUCER=%v) // ONLINE", IP, PID, time.Now().Unix(), isIntroducer)
@@ -127,9 +124,6 @@ func Disseminate(
 
 		// Mix monitors with targets in fingertable
 		targets := GetTargets(selfPID, fingertable, &monitors)
-		log.Println("Disseminate(): monitors", monitors)
-		log.Println("target", targets)
-		// TODO: uncomment && write receiver code
 		for _, PID := range targets {
 			sendMessage(PID, message)
 		}
@@ -176,7 +170,6 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 		}
 	}
 
-	// log.Printf("GetMonitors(): (monitors=%v)", monitors)
 	return monitors
 }
 

@@ -7,8 +7,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"../config"
@@ -52,6 +54,7 @@ func Live(introducer bool, logf string) {
 		log.Fatalf("error opening file: %v", err)
 	}
 	defer f.Close()
+
 	mw := io.MultiWriter(os.Stdout, f)
 	log.SetOutput(mw)
 
@@ -73,12 +76,15 @@ func Live(introducer bool, logf string) {
 	// Beat that drum
 	go heartbeat()
 
+	// Listen for leaves
+	go listenForLeave()
+
 	wg.Wait()
 }
 
 // Listen function specifically for JOINs.
 func listenForJoins() {
-	p := make([]byte, 2048)
+	p := make([]byte, 128)
 	ser, err := net.ListenUDP("udp", &net.UDPAddr{
 		IP:   net.ParseIP(selfIP),
 		Port: introducerPort,
@@ -108,7 +114,7 @@ func listenForJoins() {
 
 			// Check for potential collisions / outdated memberMap
 			if node, exists := memberMap[newPID]; exists {
-				log.Fatalf(
+				log.Printf(
 					"[COLLISION] PID %v for %v collides with existing node at %v. Try raising m to allocate more ring positions. (m=%v)",
 					newPID,
 					remoteaddr,
@@ -148,24 +154,23 @@ func listenForJoins() {
 	}
 }
 
-// Listen function to handle:
-//   - HEARTBEAT
+// Listen function to handle: HEARTBEAT, JOINREPLY
 func listen() {
-	p := make([]byte, 2048)
+	var p [512]byte
 
 	ser, err := net.ListenUDP("udp", &heartbeatAddr)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("listen(): ", err)
 	}
 
 	for {
-		_, incAddr, err := ser.ReadFromUDP(p)
+		n, _, err := ser.ReadFromUDP(p[0:])
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		// Identify appropriate protocol via message code and react
-		var bb [][]byte = bytes.Split(p, []byte(delimiter))
+		var bb [][]byte = bytes.Split(p[0:n], []byte(delimiter))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
 			log.Fatal(err)
@@ -178,24 +183,61 @@ func listen() {
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
+			log.Printf(
+				"[JOINREPLY] Successfully joined network. Discovered %d peer(s).",
+				len(memberMap)-1,
+			)
 		case spec.HEARTBEAT:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
+			lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			log.Printf("[HEARTBEAT] Received heartbeat from %v. (len(memberMap)=%d)", incAddr, len(memberMap))
+			log.Printf(
+				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d) (lenOld-lenNew=%d)",
+				bb[2],
+				len(memberMap),
+				lenOld-lenNew,
+			)
+		case spec.LEAVE:
+			// add to our "suspicion" array
+			// update our membermap to have it be alive = false
+			log.Printf("[LEAVE] from PID=%s", bb[1])
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
-
 	}
+}
+
+// Detect ctrl-c signal interrupts and dispatch [LEAVE]s to monitors accordingly
+func listenForLeave() {
+	c := make(chan os.Signal, 2)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		message := fmt.Sprintf("%d%s%d", spec.LEAVE, delimiter, selfPID)
+		log.Print("listenForLeave():", message)
+		spec.Disseminate(
+			message,
+			m,
+			selfPID,
+			&fingerTable,
+			&memberMap,
+			sendMessage,
+		)
+		os.Exit(0)
+	}()
 }
 
 // Periodically send out heartbeat messages with piggybacked membership map info.
 func heartbeat() {
 	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
 		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
-		message := fmt.Sprintf("%d%s%s", spec.HEARTBEAT, delimiter, spec.EncodeMemberMap(&memberMap))
+		message := fmt.Sprintf(
+			"%d%s%s%s%d",
+			spec.HEARTBEAT, delimiter,
+			spec.EncodeMemberMap(&memberMap), delimiter,
+			selfPID,
+		)
 		spec.Disseminate(
 			message,
 			m,
