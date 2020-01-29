@@ -73,10 +73,6 @@ func Live(introducer bool, logf string) {
 	// Beat that drum
 	go heartbeat()
 
-	// Dispatch buffered messages as needed
-	//   - JOINREPLYs
-	go dispatchBufferedMessages()
-
 	wg.Wait()
 }
 
@@ -138,6 +134,16 @@ func listenForJoins() {
 			// Add message to queue:
 			// Send the joiner a membership map so that it can discover more peers.
 			joinReplyChan <- newPID
+			go func() {
+				for range time.Tick(time.Second * time.Duration(joinInterval)) {
+					for pid := range joinReplyChan {
+						sendMessage(
+							pid,
+							fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
+						)
+					}
+				}
+			}()
 		}
 	}
 }
@@ -183,19 +189,6 @@ func listen() {
 		}
 
 	}
-}
-
-func dispatchBufferedMessages() {
-	go func() {
-		for range time.Tick(time.Second * time.Duration(joinInterval)) {
-			for pid := range joinReplyChan {
-				sendMessage(
-					pid,
-					fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
-				)
-			}
-		}
-	}()
 }
 
 // Periodically send out heartbeat messages with piggybacked membership map info.
