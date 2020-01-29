@@ -27,8 +27,8 @@ var memberMap = make(map[int]*spec.MemberNode)
 var fingerTable = make(map[int]int)
 
 var joinReplyChan = make(chan int, 10)
-var joinInterval = 2
-var heartbeatInterval = 2
+var joinInterval = 5
+var heartbeatInterval = 5
 
 const m int = 7
 const introducerPort = 6001
@@ -153,7 +153,7 @@ func listen() {
 	}
 
 	for {
-		_, _, err := ser.ReadFromUDP(p)
+		_, incAddr, err := ser.ReadFromUDP(p)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -173,6 +173,11 @@ func listen() {
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf("[JOINREPLY] Successfully joined network. Discovered %d peer(s).", len(memberMap)-1)
+		case spec.HEARTBEAT:
+			theirMemberMap := spec.DecodeMemberMap(bb[1])
+			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
+			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
+			log.Printf("[HEARTBEAT] Received heartbeat from %v. (len(memberMap)=%d)", incAddr, len(memberMap))
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
