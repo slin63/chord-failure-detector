@@ -84,15 +84,6 @@ func Live(introducer bool, logf string) {
 	// Listen for leaves
 	go listenForLeave()
 
-	go spec.CollectGarbage(
-		selfPID,
-		garbageInterval,
-		m,
-		&memberMap,
-		&suspicionMap,
-		&fingerTable,
-	)
-
 	wg.Wait()
 }
 
@@ -202,15 +193,15 @@ func listen() {
 				len(memberMap)-1,
 			)
 		case spec.HEARTBEAT:
-			// TODO logic to handle node that we suspected was dead, but is not (verify by timestampAlive > timestampSuspected)
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
-				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d) (lenOld-lenNew=%d)",
+				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d) (len(suspicionMap)=%d) (lenOld-lenNew=%d)",
 				bb[2],
 				len(memberMap),
+				len(suspicionMap),
 				lenOld-lenNew,
 			)
 		case spec.LEAVE:
@@ -265,6 +256,14 @@ func listenForLeave() {
 // Periodically send out heartbeat messages with piggybacked membership map info.
 func heartbeat() {
 	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
+		spec.CollectGarbage(
+			selfPID,
+			garbageInterval,
+			m,
+			&memberMap,
+			&suspicionMap,
+			&fingerTable,
+		)
 		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
 		message := fmt.Sprintf(
 			"%d%s%s%s%d",

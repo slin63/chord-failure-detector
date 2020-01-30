@@ -20,7 +20,7 @@ const (
 )
 
 const timeFail = 6
-const timeCleanup = 15
+const timeCleanup = 10
 
 // Globally deny access to certain memberMap & suspicionMap operations.
 var memberMapSem = make(sem.Semaphore, 1)
@@ -153,65 +153,51 @@ func CollectGarbage(
 	suspicionMap *map[int]int64,
 	fingerTable *map[int]int,
 ) {
-	for range time.Tick(time.Second * time.Duration(interval)) {
-		toDelete := []int{}
-		now := time.Now().Unix()
+	nodesToDelete := []int{}
+	nodesToRevive := []int{}
+	now := time.Now().Unix()
 
-		// Check for dying members in memberMap, add to suspicion map to cleanup
-		// Lock up memberMap here because we're iterating over it.
-		memberMapSem.Lock()
-		suspicionMapSem.Lock()
-		for PID, nodePtr := range *memberMap {
-			if PID == selfPID {
-				continue
-			}
-
-			timestamp := (*nodePtr).Timestamp
-
-			log.Printf("CollectGarbage(-1): (PID=%v) (now-timestamp=%v)", PID, (now - timestamp))
-
-			// This node is dead. Add to suspicionMap, else revive nodes that were wrongfully put to death
-			if (now-timestamp) >= timeFail && (*nodePtr).Alive {
-				(*nodePtr).Alive = false
-				(*suspicionMap)[PID] = now
-				log.Printf("CollectGarbage(0): Node (PID=%v) added to suspicionMap", PID)
-			} else if (now-timestamp) <= 0 && !(*nodePtr).Alive {
-				(*nodePtr).Alive = true
-				delete(*suspicionMap, PID)
-				log.Printf("CollectGarbage(1): Node (PID=%v) revived & removed from suspicionMap", PID)
-			}
+	// Check for dying members in memberMap, add to suspicion map to cleanup
+	// Lock up memberMap here because we're iterating over it.
+	memberMapSem.Lock()
+	suspicionMapSem.Lock()
+	for PID, nodePtr := range *memberMap {
+		if PID == selfPID {
+			continue
 		}
-		memberMapSem.Unlock()
-		suspicionMapSem.Unlock()
+		timestamp := (*nodePtr).Timestamp
 
-		// Finally bury sufficiently rotted nodes.
-		for PID, timestamp := range *suspicionMap {
-			nodePtr := (*memberMap)[PID]
-			log.Printf("CollectGarbage(1.5): Accessing .Alive on %v (PID=%v)", *nodePtr, PID)
-			if (*nodePtr).Alive {
-				log.Fatalf("CollectGarbage(2): Node (PID=%d) is alive and in suspicionMap, but should be dead.", PID)
-			}
-
-			// We can assume that word of this node's death has been disseminated. Time to forget!
-			if (now - timestamp) >= timeCleanup {
-				toDelete = append(toDelete, PID)
-			}
+		// This node is dead. Add to suspicionMap.
+		if (now-timestamp) >= timeFail && (*nodePtr).Alive {
+			(*nodePtr).Alive = false
+			(*suspicionMap)[PID] = now
+			log.Printf("CollectGarbage(0): Node (PID=%v) added to suspicionMap", PID)
 		}
-
-		memberMapSem.Lock()
-		suspicionMapSem.Lock()
-		for _, PID := range toDelete {
-			delete(*memberMap, PID)
-			delete(*suspicionMap, PID)
-			log.Printf("CollectGarbage(3): (PID=%v) has been put to death. (len(memberMap)=%v)", PID, len(*memberMap))
-		}
-		ComputeFingerTable(fingerTable, memberMap, selfPID, m)
-		memberMapSem.Unlock()
-		suspicionMapSem.Unlock()
-
-		log.Printf("collectGarbage(4): (suspicionMap=%v) (len(memberMap)=%v)", suspicionMap, len(*memberMap))
 	}
 
+	// Finally bury sufficiently rotted nodes.
+	for PID, timestamp := range *suspicionMap {
+		nodePtr := (*memberMap)[PID]
+
+		// Either revive a rejoined node OR assume that word of this node's death has been disseminated and forget it.
+		if (*nodePtr).Alive {
+			nodesToRevive = append(nodesToRevive, PID)
+		} else if (now - timestamp) >= timeCleanup {
+			nodesToDelete = append(nodesToDelete, PID)
+		}
+	}
+
+	// Write to suspicion and member maps, update fingerTable so we don't try to disseminate to dead nodes.
+	for _, PID := range nodesToRevive {
+		delete(*suspicionMap, PID)
+	}
+	for _, PID := range nodesToDelete {
+		delete(*memberMap, PID)
+		delete(*suspicionMap, PID)
+	}
+	ComputeFingerTable(fingerTable, memberMap, selfPID, m)
+	memberMapSem.Unlock()
+	suspicionMapSem.Unlock()
 }
 
 func Disseminate(
@@ -286,16 +272,15 @@ func index(a []int, val int) int {
 	return -1
 }
 
-func lockMembermap(mux *sync.Mutex) {
-	mux.Lock()
-	defer mux.Unlock()
-}
-
-func FmtMemberMap(m *map[int]*MemberNode) string {
+func FmtMemberMap(selfPID int, m *map[int]*MemberNode) string {
 	memberMapSem.Lock()
 	var o = "\n----------------------\n"
 	for PID, nodePtr := range *m {
-		o += fmt.Sprintf("PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+		if selfPID == PID {
+			o += fmt.Sprintf("* PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+		} else {
+			o += fmt.Sprintf("  PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+		}
 	}
 	o += "----------------------\n"
 	memberMapSem.Unlock()
