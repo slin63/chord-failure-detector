@@ -19,8 +19,8 @@ const (
 	HEARTBEAT
 )
 
-const timeFail = 6
-const timeCleanup = 10
+const timeFail = 15
+const timeCleanup = 20
 
 // Globally deny access to certain memberMap & suspicionMap operations.
 var memberMapSem = make(sem.Semaphore, 1)
@@ -168,10 +168,12 @@ func CollectGarbage(
 		timestamp := (*nodePtr).Timestamp
 
 		// This node is dead. Add to suspicionMap.
-		if (now-timestamp) >= timeFail && (*nodePtr).Alive {
-			(*nodePtr).Alive = false
-			(*suspicionMap)[PID] = now
-			log.Printf("CollectGarbage(0): Node (PID=%v) added to suspicionMap", PID)
+		if (now - timestamp) >= timeFail {
+			if _, ok := (*suspicionMap)[PID]; !ok {
+				(*nodePtr).Alive = false
+				(*suspicionMap)[PID] = now
+				log.Printf("[FAILURE] CollectGarbage(0) Node (PID=%v) added to suspicionMap", PID)
+			}
 		}
 	}
 

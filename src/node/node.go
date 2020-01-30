@@ -198,7 +198,7 @@ func listen() {
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
-				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d) (len(suspicionMap)=%d) (lenOld-lenNew=%d)",
+				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
 				bb[2],
 				len(memberMap),
 				len(suspicionMap),
@@ -240,7 +240,6 @@ func listenForLeave() {
 			selfPID, delimiter,
 			time.Now().Unix(),
 		)
-		log.Print("listenForLeave():", message)
 		spec.Disseminate(
 			message,
 			m,
