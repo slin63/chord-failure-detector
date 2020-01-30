@@ -18,11 +18,8 @@ import (
 	"../spec"
 )
 
-var fuc = log.Printf
-
 var selfIP string
 var selfPID int
-var mux = &sync.Mutex{}
 
 // [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
@@ -87,7 +84,14 @@ func Live(introducer bool, logf string) {
 	// Listen for leaves
 	go listenForLeave()
 
-	go spec.CollectGarbage(selfPID, garbageInterval, &memberMap, &suspicionMap)
+	go spec.CollectGarbage(
+		selfPID,
+		garbageInterval,
+		m,
+		&memberMap,
+		&suspicionMap,
+		&fingerTable,
+	)
 
 	wg.Wait()
 }
@@ -122,7 +126,6 @@ func listenForJoins() {
 			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
 
 			// Check for potential collisions / outdated memberMap
-			// TODO: logic to handle node that we suspected was dead, but is not (AKA reviving/resetting node)
 			if node, exists := memberMap[newPID]; exists {
 				log.Printf(
 					"[COLLISION] PID %v for %v collides with existing node at %v. Try raising m to allocate more ring positions. (m=%v)",
@@ -132,19 +135,20 @@ func listenForJoins() {
 					m,
 				)
 			}
-
-			memberMap[newPID] = &spec.MemberNode{
+			newNode := &spec.MemberNode{
 				IP:        remoteaddr.IP.String(),
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
 			}
+
+			spec.SetMemberMap(newPID, newNode, &memberMap)
 			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
 				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network. Added to memberMap & FT.",
 				newPID,
-				(*memberMap[newPID]).IP,
-				(*memberMap[newPID]).Timestamp,
+				(*newNode).IP,
+				(*newNode).Timestamp,
 			)
 
 			// Add message to queue:
@@ -212,24 +216,21 @@ func listen() {
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
-			log.Println(leavingPID, leavingTimestamp)
 			if err != nil {
 				log.Fatalf("[LEAVE]: %v", err)
 			}
-			// leavingPID =
-			nodePtr, ok := memberMap[leavingPID]
+
+			leaving, ok := memberMap[leavingPID]
 			if !ok {
 				log.Fatalf("[LEAVE] PID=%s not in memberMap", leavingPID)
 			}
 
-			// Update our memberMap
-			(*nodePtr).Alive = false
-			(*nodePtr).Timestamp = int64(leavingTimestamp)
-
 			// Add to suspicionMap
-			suspicionMap[leavingPID] = int64(leavingTimestamp)
+			leavingCopy := *leaving
+			leavingCopy.Alive = false
+			spec.SetSuspicionMap(leavingPID, int64(leavingTimestamp), &suspicionMap)
+			spec.SetMemberMap(leavingPID, &leavingCopy, &memberMap)
 			log.Printf("[LEAVE] from PID=%d (timestamp=%d)", leavingPID, leavingTimestamp)
-
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
@@ -295,7 +296,8 @@ func sendMessage(PID int, message string) {
 	// Check to see if that PID is in our membership list
 	target, ok := memberMap[PID]
 	if !ok {
-		log.Fatalf("PID %d not in memberMap", PID)
+		log.Printf("sendMessage(): PID %d not in memberMap. Skipping.", PID)
+		return
 	}
 	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", target.IP, port))
 	if err != nil {

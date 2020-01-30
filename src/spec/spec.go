@@ -5,7 +5,10 @@ import (
 	"encoding/gob"
 	"log"
 	"sort"
+	"sync"
 	"time"
+
+	"../sem"
 )
 
 const (
@@ -15,8 +18,15 @@ const (
 	HEARTBEAT
 )
 
-const timeFail = 5
-const timeCleanup = 5
+const timeFail = 6
+const timeCleanup = 15
+
+// Globally deny access to certain memberMap & suspicionMap operations.
+var memberMapSem = make(sem.Semaphore, 1)
+var suspicionMapSem = make(sem.Semaphore, 1)
+
+// Mutex to deny access to stretches of code
+var mux = &sync.Mutex{}
 
 type MemberNode struct {
 	// Address info formatted ip_address
@@ -59,13 +69,21 @@ func DecodeMemberMap(b []byte) map[int]*MemberNode {
 	return decodedMap
 }
 
+func SetMemberMap(k int, v *MemberNode, memberMap *map[int]*MemberNode) {
+	memberMapSem.Lock()
+	(*memberMap)[k] = v
+	memberMapSem.Unlock()
+}
+
 // Refresh the self node's entry inside the membership table
 func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode) {
+	memberMapSem.Lock()
 	(*memberMap)[selfPID] = &MemberNode{
 		IP:        selfIP,
 		Timestamp: time.Now().Unix(),
 		Alive:     true,
 	}
+	memberMapSem.Unlock()
 }
 
 // Merge two membership maps, preserving entries with the latest timestamp
@@ -73,6 +91,7 @@ func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode
 //   - timestamp(theirs) > timestamp(ours) => keep
 //   - alive(theirs) == false => update ours.alive
 func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
+	memberMapSem.Lock()
 	for PID, node := range *theirs {
 		_, exists := (*ours)[PID]
 		if exists {
@@ -83,9 +102,17 @@ func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
 			(*ours)[PID] = node
 		}
 	}
+	memberMapSem.Unlock()
+}
+
+func SetSuspicionMap(k int, v int64, suspicionMap *map[int]int64) {
+	suspicionMapSem.Lock()
+	(*suspicionMap)[k] = v
+	suspicionMapSem.Unlock()
 }
 
 func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID, m int) {
+	mux.Lock()
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
 	var PIDsExtended []int
@@ -111,21 +138,28 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 			}
 		}
 	}
+	mux.Unlock()
 }
 
 // Periodically compare our suspicion array & memberMap and remove
 // nodes who have been dead for a sufficiently long time
 // from https://courses.physics.illinois.edu/cs425/fa2019/L6.FA19.pdf
-// 4FailureDetection.mp4 -1:07 (??)
 // If the heartbeat has not increased for more than Tfail [s], the member is considered failed
-//     --> Mark node.Cleanup = True
 // And after a further Tcleanup [s], it will delete the member from the list
-//     --> spec.CollectGarbage() removes from memberMap
-func CollectGarbage(selfPID, interval int, memberMap *map[int]*MemberNode, suspicionMap *map[int]int64) {
+func CollectGarbage(
+	selfPID, interval, m int,
+	memberMap *map[int]*MemberNode,
+	suspicionMap *map[int]int64,
+	fingerTable *map[int]int,
+) {
 	for range time.Tick(time.Second * time.Duration(interval)) {
 		toDelete := []int{}
 		now := time.Now().Unix()
+
 		// Check for dying members in memberMap, add to suspicion map to cleanup
+		// Lock up memberMap here because we're iterating over it.
+		memberMapSem.Lock()
+		suspicionMapSem.Lock()
 		for PID, nodePtr := range *memberMap {
 			if PID == selfPID {
 				continue
@@ -146,6 +180,8 @@ func CollectGarbage(selfPID, interval int, memberMap *map[int]*MemberNode, suspi
 				log.Printf("CollectGarbage(1): Node (PID=%v) revived & removed from suspicionMap", PID)
 			}
 		}
+		memberMapSem.Unlock()
+		suspicionMapSem.Unlock()
 
 		// Finally bury sufficiently rotted nodes.
 		for PID, timestamp := range *suspicionMap {
@@ -161,14 +197,20 @@ func CollectGarbage(selfPID, interval int, memberMap *map[int]*MemberNode, suspi
 			}
 		}
 
+		memberMapSem.Lock()
+		suspicionMapSem.Lock()
 		for _, PID := range toDelete {
 			delete(*memberMap, PID)
 			delete(*suspicionMap, PID)
 			log.Printf("CollectGarbage(3): (PID=%v) has been put to death. (len(memberMap)=%v)", PID, len(*memberMap))
 		}
+		ComputeFingerTable(fingerTable, memberMap, selfPID, m)
+		memberMapSem.Unlock()
+		suspicionMapSem.Unlock()
 
 		log.Printf("collectGarbage(4): (suspicionMap=%v) (len(memberMap)=%v)", suspicionMap, len(*memberMap))
 	}
+
 }
 
 func Disseminate(
@@ -241,4 +283,9 @@ func index(a []int, val int) int {
 		}
 	}
 	return -1
+}
+
+func lockMembermap(mux *sync.Mutex) {
+	mux.Lock()
+	defer mux.Unlock()
 }
