@@ -15,6 +15,9 @@ const (
 	HEARTBEAT
 )
 
+const timeFail = 5
+const timeCleanup = 5
+
 type MemberNode struct {
 	// Address info formatted ip_address
 	IP        string
@@ -70,14 +73,14 @@ func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode
 //   - timestamp(theirs) > timestamp(ours) => keep
 //   - alive(theirs) == false => update ours.alive
 func MergeMemberMaps(ours, theirs *map[int]*MemberNode) {
-	for k, v := range *theirs {
-		_, exists := (*ours)[k]
+	for PID, node := range *theirs {
+		_, exists := (*ours)[PID]
 		if exists {
-			if (*theirs)[k].Timestamp > (*ours)[k].Timestamp {
-				(*ours)[k] = v
+			if (*theirs)[PID].Timestamp > (*ours)[PID].Timestamp {
+				(*ours)[PID] = node
 			}
 		} else {
-			(*ours)[k] = v
+			(*ours)[PID] = node
 		}
 	}
 }
@@ -107,6 +110,64 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 				break
 			}
 		}
+	}
+}
+
+// Periodically compare our suspicion array & memberMap and remove
+// nodes who have been dead for a sufficiently long time
+// from https://courses.physics.illinois.edu/cs425/fa2019/L6.FA19.pdf
+// 4FailureDetection.mp4 -1:07 (??)
+// If the heartbeat has not increased for more than Tfail [s], the member is considered failed
+//     --> Mark node.Cleanup = True
+// And after a further Tcleanup [s], it will delete the member from the list
+//     --> spec.CollectGarbage() removes from memberMap
+func CollectGarbage(selfPID, interval int, memberMap *map[int]*MemberNode, suspicionMap *map[int]int64) {
+	for range time.Tick(time.Second * time.Duration(interval)) {
+		toDelete := []int{}
+		now := time.Now().Unix()
+		// Check for dying members in memberMap, add to suspicion map to cleanup
+		for PID, nodePtr := range *memberMap {
+			if PID == selfPID {
+				continue
+			}
+
+			timestamp := (*nodePtr).Timestamp
+
+			log.Printf("CollectGarbage(-1): (PID=%v) (now-timestamp=%v)", PID, (now - timestamp))
+
+			// This node is dead. Add to suspicionMap, else revive nodes that were wrongfully put to death
+			if (now-timestamp) >= timeFail && (*nodePtr).Alive {
+				(*nodePtr).Alive = false
+				(*suspicionMap)[PID] = now
+				log.Printf("CollectGarbage(0): Node (PID=%v) added to suspicionMap", PID)
+			} else if (now-timestamp) <= 0 && !(*nodePtr).Alive {
+				(*nodePtr).Alive = true
+				delete(*suspicionMap, PID)
+				log.Printf("CollectGarbage(1): Node (PID=%v) revived & removed from suspicionMap", PID)
+			}
+		}
+
+		// Finally bury sufficiently rotted nodes.
+		for PID, timestamp := range *suspicionMap {
+			nodePtr := (*memberMap)[PID]
+			log.Printf("CollectGarbage(1.5): Accessing .Alive on %v (PID=%v)", *nodePtr, PID)
+			if (*nodePtr).Alive {
+				log.Fatalf("CollectGarbage(2): Node (PID=%d) is alive and in suspicionMap, but should be dead.", PID)
+			}
+
+			// We can assume that word of this node's death has been disseminated. Time to forget!
+			if (now - timestamp) >= timeCleanup {
+				toDelete = append(toDelete, PID)
+			}
+		}
+
+		for _, PID := range toDelete {
+			delete(*memberMap, PID)
+			delete(*suspicionMap, PID)
+			log.Printf("CollectGarbage(3): (PID=%v) has been put to death. (len(memberMap)=%v)", PID, len(*memberMap))
+		}
+
+		log.Printf("collectGarbage(4): (suspicionMap=%v) (len(memberMap)=%v)", suspicionMap, len(*memberMap))
 	}
 }
 

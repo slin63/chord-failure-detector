@@ -24,13 +24,21 @@ var selfIP string
 var selfPID int
 var mux = &sync.Mutex{}
 
-// Update memberMaps / ft whenever we receive a "fresh" copy of the memberMap
+// [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
+
+// [PID:Unix timestamp at time of death]
+// Assume all PIDs here point to dead nodes, waiting to be deleted
+var suspicionMap = make(map[int]int64)
+
+// [finger:PID]
 var fingerTable = make(map[int]int)
 
 var joinReplyChan = make(chan int, 10)
-var joinInterval = 5
-var heartbeatInterval = 5
+
+const joinInterval = 5
+const heartbeatInterval = 5
+const garbageInterval = 5
 
 const m int = 7
 const introducerPort = 6001
@@ -79,6 +87,8 @@ func Live(introducer bool, logf string) {
 	// Listen for leaves
 	go listenForLeave()
 
+	go spec.CollectGarbage(selfPID, garbageInterval, &memberMap, &suspicionMap)
+
 	wg.Wait()
 }
 
@@ -100,7 +110,6 @@ func listenForJoins() {
 			log.Fatal(err)
 		}
 
-		// Check if message code == JOIN
 		var bb [][]byte = bytes.Split(p, []byte(delimiter))
 		replyCode, err := strconv.Atoi(string(bb[0][0]))
 		if err != nil {
@@ -113,6 +122,7 @@ func listenForJoins() {
 			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
 
 			// Check for potential collisions / outdated memberMap
+			// TODO: logic to handle node that we suspected was dead, but is not (AKA reviving/resetting node)
 			if node, exists := memberMap[newPID]; exists {
 				log.Printf(
 					"[COLLISION] PID %v for %v collides with existing node at %v. Try raising m to allocate more ring positions. (m=%v)",
@@ -188,6 +198,7 @@ func listen() {
 				len(memberMap)-1,
 			)
 		case spec.HEARTBEAT:
+			// TODO logic to handle node that we suspected was dead, but is not (verify by timestampAlive > timestampSuspected)
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
@@ -199,9 +210,26 @@ func listen() {
 				lenOld-lenNew,
 			)
 		case spec.LEAVE:
-			// add to our "suspicion" array
-			// update our membermap to have it be alive = false
-			log.Printf("[LEAVE] from PID=%s", bb[1])
+			leavingPID, err := strconv.Atoi(string(bb[1]))
+			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
+			log.Println(leavingPID, leavingTimestamp)
+			if err != nil {
+				log.Fatalf("[LEAVE]: %v", err)
+			}
+			// leavingPID =
+			nodePtr, ok := memberMap[leavingPID]
+			if !ok {
+				log.Fatalf("[LEAVE] PID=%s not in memberMap", leavingPID)
+			}
+
+			// Update our memberMap
+			(*nodePtr).Alive = false
+			(*nodePtr).Timestamp = int64(leavingTimestamp)
+
+			// Add to suspicionMap
+			suspicionMap[leavingPID] = int64(leavingTimestamp)
+			log.Printf("[LEAVE] from PID=%d (timestamp=%d)", leavingPID, leavingTimestamp)
+
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
@@ -214,7 +242,12 @@ func listenForLeave() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		message := fmt.Sprintf("%d%s%d", spec.LEAVE, delimiter, selfPID)
+		message := fmt.Sprintf(
+			"%d%s%d%s%d",
+			spec.LEAVE, delimiter,
+			selfPID, delimiter,
+			time.Now().Unix(),
+		)
 		log.Print("listenForLeave():", message)
 		spec.Disseminate(
 			message,
