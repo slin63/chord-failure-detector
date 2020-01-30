@@ -3,6 +3,7 @@ package spec
 import (
 	"bytes"
 	"encoding/gob"
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -288,4 +289,15 @@ func index(a []int, val int) int {
 func lockMembermap(mux *sync.Mutex) {
 	mux.Lock()
 	defer mux.Unlock()
+}
+
+func FmtMemberMap(m *map[int]*MemberNode) string {
+	memberMapSem.Lock()
+	var o = "\n----------------------\n"
+	for PID, nodePtr := range *m {
+		o += fmt.Sprintf("PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+	}
+	o += "----------------------\n"
+	memberMapSem.Unlock()
+	return o
 }
