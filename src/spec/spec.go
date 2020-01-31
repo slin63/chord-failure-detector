@@ -194,6 +194,7 @@ func CollectGarbage(
 		delete(*suspicionMap, PID)
 	}
 	for _, PID := range nodesToDelete {
+		log.Printf("[FAILURECLEAN] Node (PID=%v) removed from memberMap", PID)
 		delete(*memberMap, PID)
 		delete(*suspicionMap, PID)
 	}

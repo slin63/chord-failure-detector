@@ -201,8 +201,8 @@ func listen() {
 				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
 				bb[2],
 				len(memberMap),
-				len(suspicionMap),
 				lenOld-lenNew,
+				len(suspicionMap),
 			)
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
@@ -216,7 +216,7 @@ func listen() {
 				log.Fatalf("[LEAVE] PID=%s not in memberMap", leavingPID)
 			}
 
-			// Add to suspicionMap
+			// Add to suspicionMap so that none-linked nodes will eventually hear about this.
 			leavingCopy := *leaving
 			leavingCopy.Alive = false
 			spec.SetSuspicionMap(leavingPID, int64(leavingTimestamp), &suspicionMap)
