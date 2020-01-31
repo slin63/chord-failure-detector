@@ -33,9 +33,9 @@ var fingerTable = make(map[int]int)
 
 var joinReplyChan = make(chan int, 10)
 
-const joinInterval = 5
+const joinReplyInterval = 5
+const joinAttemptInterval = 20
 const heartbeatInterval = 5
-const garbageInterval = 5
 
 const m int = 7
 const introducerPort = 6001
@@ -146,7 +146,7 @@ func listenForJoins() {
 			// Send the joiner a membership map so that it can discover more peers.
 			joinReplyChan <- newPID
 			go func() {
-				for range time.Tick(time.Second * time.Duration(joinInterval)) {
+				for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
 					for pid := range joinReplyChan {
 						sendMessage(
 							pid,
@@ -257,7 +257,6 @@ func heartbeat() {
 	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
 		spec.CollectGarbage(
 			selfPID,
-			garbageInterval,
 			m,
 			&memberMap,
 			&suspicionMap,
@@ -282,12 +281,17 @@ func heartbeat() {
 }
 
 func joinNetwork() {
-	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", config.Introducer(), introducerPort))
-	if err != nil {
-		log.Fatal(err)
+	for {
+		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", config.Introducer(), introducerPort))
+		if err != nil {
+			log.Printf("[ERROR] Unable to connect to introducer. Trying again in %d seconds.", joinAttemptInterval)
+			time.Sleep(time.Second * joinAttemptInterval)
+		} else {
+			fmt.Fprintf(conn, "%d", spec.JOIN)
+			conn.Close()
+			return
+		}
 	}
-	fmt.Fprintf(conn, "%d", spec.JOIN)
-	conn.Close()
 }
 
 func sendMessage(PID int, message string) {

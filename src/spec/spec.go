@@ -37,7 +37,7 @@ type MemberNode struct {
 }
 
 func ReportOnline(IP string, PID int, isIntroducer bool) {
-	log.Printf("[%s:%d]@%d (INTRODUCER=%v) // ONLINE", IP, PID, time.Now().Unix(), isIntroducer)
+	log.Printf("[ONLINE] [PID=%d] [%s]@%d (INTRODUCER=%v)", PID, IP, time.Now().Unix(), isIntroducer)
 }
 
 // Encode the memberMap for messaging
@@ -148,7 +148,7 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 // If the heartbeat has not increased for more than Tfail [s], the member is considered failed
 // And after a further Tcleanup [s], it will delete the member from the list
 func CollectGarbage(
-	selfPID, interval, m int,
+	selfPID, m int,
 	memberMap *map[int]*MemberNode,
 	suspicionMap *map[int]int64,
 	fingerTable *map[int]int,
