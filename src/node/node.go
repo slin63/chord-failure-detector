@@ -79,7 +79,7 @@ func Live(introducer bool, logf string) {
 	go listen()
 
 	// Beat that drum
-	go heartbeat()
+	go heartbeat(introducer)
 
 	// Listen for leaves
 	go listenForLeave()
@@ -253,8 +253,12 @@ func listenForLeave() {
 }
 
 // Periodically send out heartbeat messages with piggybacked membership map info.
-func heartbeat() {
-	for range time.Tick(time.Second * time.Duration(heartbeatInterval)) {
+func heartbeat(introducer bool) {
+	for {
+		if len(memberMap) == 1 && !introducer {
+			log.Printf("[ORPHANED]: [SELFPID=%d] attempting to reconnect with introducer to find new peers.", selfPID)
+			joinNetwork()
+		}
 		spec.CollectGarbage(
 			selfPID,
 			m,
@@ -277,6 +281,7 @@ func heartbeat() {
 			&memberMap,
 			sendMessage,
 		)
+		time.Sleep(time.Second * heartbeatInterval)
 	}
 }
 
