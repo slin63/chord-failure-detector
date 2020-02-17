@@ -20,6 +20,7 @@ import (
 
 var selfIP string
 var selfPID int
+var introducerAddress string
 
 // [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
@@ -45,6 +46,7 @@ const delimiter = "//"
 var heartbeatAddr net.UDPAddr
 
 func Live(introducer bool, logf string) {
+	introducerAddress = config.Introducer()
 	selfIP = getSelfIP()
 	selfPID = hashing.GetPID(selfIP, m)
 	spec.ReportOnline(selfIP, selfPID, introducer)
@@ -287,7 +289,7 @@ func heartbeat(introducer bool) {
 
 func joinNetwork() {
 	for {
-		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", config.Introducer(), introducerPort))
+		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", introducerAddress, introducerPort))
 		if err != nil {
 			log.Printf("[ERROR] Unable to connect to introducer. Trying again in %d seconds.", joinAttemptInterval)
 			time.Sleep(time.Second * joinAttemptInterval)
