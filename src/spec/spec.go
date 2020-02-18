@@ -220,6 +220,7 @@ func Disseminate(
 	fingertable *map[int]int,
 	memberMap *map[int]*MemberNode,
 	sendMessage func(int, string, bool),
+	election bool,
 ) {
 	if len(*memberMap) > 1 {
 		// Identify predecessor & 2 successors, or less if not available
@@ -228,7 +229,7 @@ func Disseminate(
 		// Mix monitors with targets in fingertable
 		targets := GetTargets(selfPID, fingertable, &monitors)
 		for _, PID := range targets {
-			sendMessage(PID, message, false)
+			sendMessage(PID, message, election)
 		}
 	}
 }
