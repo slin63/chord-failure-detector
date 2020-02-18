@@ -42,7 +42,7 @@ var joinReplyChan = make(chan int, 10)
 const joinReplyInterval = 5
 const joinAttemptInterval = 20
 const heartbeatInterval = 5
-const retryElectionInterval = 30
+const retryElectionInterval = 60
 
 const m int = 7
 const electionPort = 6002
@@ -381,10 +381,11 @@ func checkLeaderLiveness() {
 // Formats the election message, sets our Electing state = 1, sends message off to nearest neighbor
 func electionForward(message string) {
 	if len(memberMap) > 1 {
-		monitors := spec.GetMonitors(selfPID, m, &memberMap)
-		succ1 := monitors[len(monitors)-1]
-		sendMessage(succ1, message, true)
-		electionState = spec.ELECTING
+		succ1 := spec.GetSuccPIDWithoutLeader(selfPID, m, &memberMap)
+		if succ1 != selfPID {
+			sendMessage(succ1, message, true)
+			electionState = spec.ELECTING
+		}
 	} else {
 		log.Println("[ELECTFAIL] No other peers to run election with.")
 	}
