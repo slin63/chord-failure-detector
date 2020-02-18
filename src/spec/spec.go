@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"log"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ const (
 
 const timeFail = 15
 const timeCleanup = 20
+
+var quorum = 0.6
 
 // Globally deny access to certain memberMap & suspicionMap operations.
 var memberMapSem = make(sem.Semaphore, 1)
@@ -292,8 +295,15 @@ func GetSuccPIDWithoutLeader(selfPID, m int, memberMap *map[int]*MemberNode) int
 	return GetMonitors(selfPID, m, &memberMapNoLeader)[1]
 }
 
+func EvaluateQuorum(memberMap *map[int]*MemberNode, suspicionMap *map[int]int64) int {
+	// (len(memberMap) - 1) because member map includes the self node as well
+	return int(math.Floor(
+		quorum * float64(((len(*memberMap) - 1) - len(*suspicionMap))),
+	))
+}
+
 func ElectionMessage(delimiter string, selfPID int) string {
-	return fmt.Sprintf("%d%s%s%s%d", ELECTME, delimiter, selfPID)
+	return fmt.Sprintf("%d%s%d", ELECTME, delimiter, selfPID)
 }
 
 func ElectedMessage(delimiter string, selfPID int) string {
@@ -301,7 +311,7 @@ func ElectedMessage(delimiter string, selfPID int) string {
 }
 
 func ElectedConfMessage(delimiter string, selfPID int) string {
-	return fmt.Sprintf("%d%s%d%s%d", ELECTEDCONF, delimiter, selfPID)
+	return fmt.Sprintf("%d%s%d", ELECTEDCONF, delimiter, selfPID)
 }
 
 func index(a []int, val int) int {

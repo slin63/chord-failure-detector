@@ -27,6 +27,7 @@ var introducerAddress string
 // [PID:PID] (just using as a hashtable)
 var electionMap = make(map[int]int)
 var electedMap = make(map[int]int)
+var electedConfMap = make(map[int]int)
 
 // [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
@@ -248,8 +249,10 @@ func listenForElections() {
 		// if we meet the quorom, disseminate a ELECTIONDONE message and PARTY
 		// TODO: implement comments from above
 		case spec.ELECTEDCONF:
+			quorum := spec.EvaluateQuorum(&memberMap, &suspicionMap)
 			confPID, _ := strconv.Atoi(string(bb[1]))
-			log.Printf("[ELECTEDCONF] Got confirmation from [PID=%d]!", confPID)
+			electedConfMap[confPID] = confPID
+			log.Printf("[ELECTEDCONF] from [PID=%d]. %d/%d votes needed", confPID, len(electedConfMap), quorum)
 
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
