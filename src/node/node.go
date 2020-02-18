@@ -203,42 +203,41 @@ func listenForElections() {
 
 		switch replyCode {
 		// We received an election message from someone else.
-		// If their PID > our PID, forward original message. Otherwise, replace with our own message
 		case spec.ELECTME:
 			theirAddress := bb[1]
 			theirPID, _ := strconv.Atoi(string(bb[2]))
 
-			// This message is us. We won the election
-			if theirPID == selfPID {
-				// Disseminate an ELECTED message and tell the other nodes to throw it in, we won
-				log.Printf("[ELECTED] [PID=%d] won election, disseminating success.", selfPID)
-				spec.Disseminate(
-					electedMessage(),
-					m,
-					selfPID,
-					&fingerTable,
-					&memberMap,
-					sendMessage,
-					true,
-				)
-			}
-
 			// Ignore recently received election messages
 			_, ok := electionMap[theirPID]
 			if !ok {
+				log.Printf("[ELECTMEACK] Got [ELECTME] with [IP=%s] [PID=%d]!", theirAddress, theirPID)
 				electionMap[theirPID] = time.Now().Unix()
-				if selfPID > theirPID {
+				// This message is us. We won the election
+				if theirPID == selfPID {
+					// Disseminate an ELECTED message and tell the other nodes to throw it in, we won
+					log.Printf("[ELECTED] [PID=%d] won election, disseminating success.", selfPID)
+					spec.Disseminate(
+						electedMessage(),
+						m,
+						selfPID,
+						&fingerTable,
+						&memberMap,
+						sendMessage,
+						true,
+					) // If their PID > our PID, forward original message. Otherwise, replace with our own message
+				} else if selfPID > theirPID {
 					electionForward(electionMessage())
 				} else {
 					electionForward(string(original))
 				}
-				log.Printf("[ELECTMEACK] Got [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
 			} else {
 				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
 			}
 		case spec.ELECTED:
+			theirPID, _ := strconv.Atoi(string(bb[1]))
+			timestamp := bb[2]
 			// if timestamp of candidate is lower than current candidate timestamp, accept them as leader, send acceptance
-			log.Println("TODO: WUT")
+			log.Printf("[ELECTED] [PID=%d] [TS=%d]!", theirPID, timestamp)
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}

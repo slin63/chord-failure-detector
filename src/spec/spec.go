@@ -279,14 +279,13 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 
 // Identify the PID of node [pred, succ1, succ2] (in that order)
 func GetSuccPIDWithoutLeader(selfPID, m int, memberMap *map[int]*MemberNode) int {
-	var monitorsNoLeader []int
-	monitors := GetMonitors(selfPID, m, memberMap)
-	for _, PID := range monitors {
-		if !(*memberMap)[PID].Leader {
-			monitorsNoLeader = append(monitorsNoLeader, PID)
+	var memberMapNoLeader = make(map[int]*MemberNode)
+	for k, v := range *memberMap {
+		if !v.Leader {
+			memberMapNoLeader[k] = v
 		}
 	}
-	return monitorsNoLeader[len(monitorsNoLeader)-1]
+	return GetMonitors(selfPID, m, &memberMapNoLeader)[1]
 }
 
 func index(a []int, val int) int {
