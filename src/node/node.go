@@ -24,8 +24,8 @@ var electionState int
 var electionInitiated int64
 var introducerAddress string
 
-// [PID:timestamp]
-var electionMap = make(map[int]int64)
+// [PID:PID] (just using as a hashtable)
+var electionMap = make(map[int]int)
 var electedMap = make(map[int]int)
 
 // [PID:*memberNode]
@@ -214,18 +214,18 @@ func listenForElections() {
 			_, ok := electionMap[theirPID]
 			if !ok {
 				log.Printf("[ELECTMEACK] Got [ELECTME] with [PID=%d]!", theirPID)
-				electionMap[theirPID] = time.Now().Unix()
+				electionMap[theirPID] = theirPID
 				if theirPID == selfPID {
 					log.Printf("[ELECTED] [PID=%d] won election, disseminating success.", selfPID)
 					electionState = spec.AWAITINGQUORUM
-					spec.Disseminate(electedMessage(), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
+					spec.Disseminate(spec.ElectedMessage(delimiter, selfPID), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
 				} else if selfPID > theirPID {
-					electionForward(electionMessage())
+					electionForward(spec.ElectionMessage(delimiter, selfPID))
 				} else {
 					electionForward(string(original))
 				}
 			} else {
-				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
+				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [PID=%d]!", theirPID)
 			}
 
 		// Someone has been elected. Ignore if we've already seen this [ELECTED] message
@@ -239,7 +239,7 @@ func listenForElections() {
 			if !ok {
 				electedMap[electedPID] = electedPID
 				spec.Disseminate(string(original), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
-				sendMessage(electedPID, electedConfMessage(), true)
+				sendMessage(electedPID, spec.ElectedConfMessage(delimiter, selfPID), true)
 				log.Printf("[ELECTED] [PID=%d] [TS=%s]. Disseminated and replied with confirmation!", electedPID, timestamp)
 			}
 
@@ -401,7 +401,7 @@ func checkLeaderLiveness() {
 				log.Println(spec.FmtMemberMap(selfPID, &memberMap))
 				log.Println("[ELECTME] Leader dead! Initiating election. ")
 				electionInitiated = time.Now().Unix()
-				electionForward(electionMessage())
+				electionForward(spec.ElectionMessage(delimiter, selfPID))
 			}
 
 		} else {
@@ -422,18 +422,6 @@ func electionForward(message string) {
 	} else {
 		log.Println("[ELECTFAIL] No other peers to run election with.")
 	}
-}
-
-func electionMessage() string {
-	return fmt.Sprintf("%d%s%s%s%d", spec.ELECTME, delimiter, selfPID)
-}
-
-func electedMessage() string {
-	return fmt.Sprintf("%d%s%d%s%d", spec.ELECTED, delimiter, selfPID, delimiter, time.Now().Unix)
-}
-
-func electedConfMessage() string {
-	return fmt.Sprintf("%d%s%d%s%d", spec.ELECTEDCONF, delimiter, selfPID, delimiter)
 }
 
 func joinNetwork() {

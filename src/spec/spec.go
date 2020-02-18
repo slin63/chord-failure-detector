@@ -292,6 +292,18 @@ func GetSuccPIDWithoutLeader(selfPID, m int, memberMap *map[int]*MemberNode) int
 	return GetMonitors(selfPID, m, &memberMapNoLeader)[1]
 }
 
+func ElectionMessage(delimiter string, selfPID int) string {
+	return fmt.Sprintf("%d%s%s%s%d", ELECTME, delimiter, selfPID)
+}
+
+func ElectedMessage(delimiter string, selfPID int) string {
+	return fmt.Sprintf("%d%s%d%s%d", ELECTED, delimiter, selfPID, delimiter, time.Now().Unix)
+}
+
+func ElectedConfMessage(delimiter string, selfPID int) string {
+	return fmt.Sprintf("%d%s%d%s%d", ELECTEDCONF, delimiter, selfPID)
+}
+
 func index(a []int, val int) int {
 	for i, v := range a {
 		if v == val {
