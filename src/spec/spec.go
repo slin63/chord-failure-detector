@@ -18,13 +18,17 @@ const (
 	JOINREPLY
 	LEAVE
 	HEARTBEAT
-	ELECTME // Self election message
-	ELECTED // Message with elected candidate
+	// Election messages
+	ELECTME      // Self election message
+	ELECTED      // Message with elected candidate
+	ELECTEDCONF  // Message to confirm to elected candidate
+	ELECTIONDONE // Message with new leader info that resets election states and memtables.
 
 	// Election states
-	PEACE
-	ELECTING
-	ELECTEDSELF
+	NOELECTION     // No election currently underway
+	ELECTING       // Selecting a leader
+	VOTING         // Agreeing that the elected leader is fit.
+	AWAITINGQUORUM // The leader awaiting the quorum
 )
 
 const timeFail = 15

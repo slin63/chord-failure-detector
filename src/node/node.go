@@ -24,8 +24,9 @@ var electionState int
 var electionInitiated int64
 var introducerAddress string
 
-// [PID]
+// [PID:timestamp]
 var electionMap = make(map[int]int64)
+var electedMap = make(map[int]int)
 
 // [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
@@ -54,7 +55,7 @@ var heartbeatAddr net.UDPAddr
 var electionAddr net.UDPAddr
 
 func Live(introducer bool, logf string) {
-	electionState = spec.PEACE
+	electionState = spec.NOELECTION
 	introducerAddress = config.Introducer()
 	selfIP = getSelfIP()
 	selfPID = hashing.GetPID(selfIP, m)
@@ -204,27 +205,20 @@ func listenForElections() {
 		switch replyCode {
 		// We received an election message from someone else.
 		case spec.ELECTME:
-			theirAddress := bb[1]
-			theirPID, _ := strconv.Atoi(string(bb[2]))
+			theirPID, _ := strconv.Atoi(string(bb[1]))
 
 			// Ignore recently received election messages
+			// if their PID == our PID, we won! Disseminate an ELECTED message and wait for a consensus
+			// if their PID > our PID, forward original ELECTME message. Otherwise, replace with our own message
+			// otherwise, forward the ELECTME message
 			_, ok := electionMap[theirPID]
 			if !ok {
-				log.Printf("[ELECTMEACK] Got [ELECTME] with [IP=%s] [PID=%d]!", theirAddress, theirPID)
+				log.Printf("[ELECTMEACK] Got [ELECTME] with [PID=%d]!", theirPID)
 				electionMap[theirPID] = time.Now().Unix()
-				// This message is us. We won the election
 				if theirPID == selfPID {
-					// Disseminate an ELECTED message and tell the other nodes to throw it in, we won
 					log.Printf("[ELECTED] [PID=%d] won election, disseminating success.", selfPID)
-					spec.Disseminate(
-						electedMessage(),
-						m,
-						selfPID,
-						&fingerTable,
-						&memberMap,
-						sendMessage,
-						true,
-					) // If their PID > our PID, forward original message. Otherwise, replace with our own message
+					electionState = spec.AWAITINGQUORUM
+					spec.Disseminate(electedMessage(), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
 				} else if selfPID > theirPID {
 					electionForward(electionMessage())
 				} else {
@@ -233,11 +227,30 @@ func listenForElections() {
 			} else {
 				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
 			}
+
+		// Someone has been elected. Ignore if we've already seen this [ELECTED] message
+		// Disseminate the ELECTED message.
+		// Let the ELECTED process know we've received the message (to form the quorum)
 		case spec.ELECTED:
-			theirPID, _ := strconv.Atoi(string(bb[1]))
+			electedPID, _ := strconv.Atoi(string(bb[1]))
 			timestamp := bb[2]
-			// if timestamp of candidate is lower than current candidate timestamp, accept them as leader, send acceptance
-			log.Printf("[ELECTED] [PID=%d] [TS=%d]!", theirPID, timestamp)
+			electionState = spec.VOTING
+			_, ok := electedMap[electedPID]
+			if !ok {
+				electedMap[electedPID] = electedPID
+				spec.Disseminate(string(original), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
+				sendMessage(electedPID, electedConfMessage(), true)
+				log.Printf("[ELECTED] [PID=%d] [TS=%s]. Disseminated and replied with confirmation!", electedPID, timestamp)
+			}
+
+		// We received a election confirmation from someone.
+		// Add to our election confirmation map and see if we've met the quorum.
+		// if we meet the quorom, disseminate a ELECTIONDONE message and PARTY
+		// TODO: implement comments from above
+		case spec.ELECTEDCONF:
+			confPID, _ := strconv.Atoi(string(bb[1]))
+			log.Printf("[ELECTEDCONF] Got confirmation from [PID=%d]!", confPID)
+
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
@@ -282,6 +295,7 @@ func listen() {
 			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
+			// # TODO: uncomment
 			// log.Printf(
 			// 	"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
 			// 	bb[2],
@@ -383,11 +397,13 @@ func checkLeaderLiveness() {
 	if time.Now().Unix()-electionInitiated > retryElectionInterval {
 		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", introducerAddress, introducerPort))
 		if err != nil {
-			log.Println(spec.FmtMemberMap(selfPID, &memberMap))
-			log.Println("[ELECTME] Leader dead! Initiating election. ")
-			electionInitiated = time.Now().Unix()
+			if electionState == spec.NOELECTION {
+				log.Println(spec.FmtMemberMap(selfPID, &memberMap))
+				log.Println("[ELECTME] Leader dead! Initiating election. ")
+				electionInitiated = time.Now().Unix()
+				electionForward(electionMessage())
+			}
 
-			electionForward(electionMessage())
 		} else {
 			conn.Close()
 		}
@@ -409,11 +425,15 @@ func electionForward(message string) {
 }
 
 func electionMessage() string {
-	return fmt.Sprintf("%d%s%s%s%d", spec.ELECTME, delimiter, selfIP, delimiter, selfPID)
+	return fmt.Sprintf("%d%s%s%s%d", spec.ELECTME, delimiter, selfPID)
 }
 
 func electedMessage() string {
 	return fmt.Sprintf("%d%s%d%s%d", spec.ELECTED, delimiter, selfPID, delimiter, time.Now().Unix)
+}
+
+func electedConfMessage() string {
+	return fmt.Sprintf("%d%s%d%s%d", spec.ELECTEDCONF, delimiter, selfPID, delimiter)
 }
 
 func joinNetwork() {
