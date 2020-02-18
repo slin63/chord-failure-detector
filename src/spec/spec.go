@@ -314,6 +314,10 @@ func ElectedConfMessage(delimiter string, selfPID int) string {
 	return fmt.Sprintf("%d%s%d", ELECTEDCONF, delimiter, selfPID)
 }
 
+func ElectionDoneMessage(delimiter string, selfPID int) string {
+	return fmt.Sprintf("%d%s%d", ELECTIONDONE, delimiter, selfPID)
+}
+
 func index(a []int, val int) int {
 	for i, v := range a {
 		if v == val {

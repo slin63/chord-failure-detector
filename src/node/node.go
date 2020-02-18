@@ -225,6 +225,7 @@ func listenForElections() {
 				} else {
 					electionForward(string(original))
 				}
+				electionState = spec.AWAITINGQUORUM
 			} else {
 				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [PID=%d]!", theirPID)
 			}
@@ -246,13 +247,28 @@ func listenForElections() {
 
 		// We received a election confirmation from someone.
 		// Add to our election confirmation map and see if we've met the quorum.
-		// if we meet the quorom, disseminate a ELECTIONDONE message and PARTY
-		// TODO: implement comments from above
+		// if we meet the quorom, disseminate a ELECTIONDONE message
+		//   and update our own memberMap entry to reflect the new leadership.
 		case spec.ELECTEDCONF:
 			quorum := spec.EvaluateQuorum(&memberMap, &suspicionMap)
 			confPID, _ := strconv.Atoi(string(bb[1]))
 			electedConfMap[confPID] = confPID
-			log.Printf("[ELECTEDCONF] from [PID=%d]. %d/%d votes needed", confPID, len(electedConfMap), quorum)
+			if len(electedConfMap) >= quorum {
+				spec.Disseminate(spec.ElectionDoneMessage(delimiter, selfPID), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
+				spec.RefreshMemberMap(selfIP, selfPID, &memberMap, true)
+			} else {
+				log.Printf("[ELECTEDCONF] from [PID=%d]. %d/%d votes needed", confPID, len(electedConfMap), quorum)
+			}
+
+		// The election is over, clear our election state and reset our election maps
+		case spec.ELECTIONDONE:
+			if electionState == spec.VOTING {
+				// TODO (02/18 @ 16:30): reset election state/maps, make sure new leader actually is working
+				//  also need to update introducerAddress = memberMap[newLeaderPID]
+				newLeaderPID, _ := strconv.Atoi(string(bb[1]))
+				log.Printf("[ELECTEDDONE] from [PID=%d]. Clearing election states!", newLeaderPID)
+				electionState = spec.NOELECTION
+			}
 
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
