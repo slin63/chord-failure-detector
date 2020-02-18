@@ -20,7 +20,12 @@ import (
 
 var selfIP string
 var selfPID int
+var electionState int
+var electionInitiated int64
 var introducerAddress string
+
+// [PID]
+var electionMap = make(map[int]int64)
 
 // [PID:*memberNode]
 var memberMap = make(map[int]*spec.MemberNode)
@@ -37,15 +42,19 @@ var joinReplyChan = make(chan int, 10)
 const joinReplyInterval = 5
 const joinAttemptInterval = 20
 const heartbeatInterval = 5
+const retryElectionInterval = 30
 
 const m int = 7
+const electionPort = 6002
 const introducerPort = 6001
 const port = 6000
 const delimiter = "//"
 
 var heartbeatAddr net.UDPAddr
+var electionAddr net.UDPAddr
 
 func Live(introducer bool, logf string) {
+	electionState = spec.PEACE
 	introducerAddress = config.Introducer()
 	selfIP = getSelfIP()
 	selfPID = hashing.GetPID(selfIP, m)
@@ -69,6 +78,10 @@ func Live(introducer bool, logf string) {
 		IP:   net.ParseIP(selfIP),
 		Port: port,
 	}
+	electionAddr = net.UDPAddr{
+		IP:   net.ParseIP(selfIP),
+		Port: electionPort,
+	}
 
 	// Join the network if you're not the introducer
 	if !introducer {
@@ -77,11 +90,14 @@ func Live(introducer bool, logf string) {
 		go listenForJoins()
 	}
 
+	// Beat that drum
+	go heartbeat(introducer)
+
 	// Listen for messages
 	go listen()
 
-	// Beat that drum
-	go heartbeat(introducer)
+	// Listen for election messages
+	go listenForElections()
 
 	// Listen for leaves
 	go listenForLeave()
@@ -135,7 +151,7 @@ func listenForJoins() {
 			}
 
 			spec.SetMemberMap(newPID, newNode, &memberMap)
-			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
+			spec.RefreshMemberMap(selfIP, selfPID, &memberMap, true)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
 				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network. Added to memberMap & FT.",
@@ -153,10 +169,62 @@ func listenForJoins() {
 						sendMessage(
 							pid,
 							fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
+							false,
 						)
 					}
 				}
 			}()
+		}
+	}
+}
+
+// Listen function to handle: ELECTME, ELECTED
+func listenForElections() {
+	var p [256]byte
+
+	ser, err := net.ListenUDP("udp", &electionAddr)
+	if err != nil {
+		log.Fatal("listenForElections(): ", err)
+	}
+
+	for {
+		n, _, err := ser.ReadFromUDP(p[0:])
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Identify appropriate protocol via message code and react
+		var original = p[0:n]
+		var bb [][]byte = bytes.Split(p[0:n], []byte(delimiter))
+		replyCode, err := strconv.Atoi(string(bb[0][0]))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		switch replyCode {
+		// We received an election message from someone else.
+		// If their PID > our PID, forward original message. Otherwise, replace with our own message
+		case spec.ELECTME:
+			theirAddress := bb[1]
+			theirPID, _ := strconv.Atoi(string(bb[2]))
+
+			// Ignore recently received election messages
+			_, ok := electionMap[theirPID]
+			if !ok {
+				electionMap[theirPID] = time.Now().Unix()
+				if selfPID > theirPID {
+					electionForward(electionMessage())
+				} else {
+					electionForward(string(original))
+				}
+				log.Printf("[ELECTMEACK] Got [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
+			} else {
+				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [IP=%s] [PID=%d]!", theirAddress, theirPID)
+			}
+		case spec.ELECTED:
+			log.Println("TODO: WUT")
+		default:
+			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
 	}
 }
@@ -196,16 +264,16 @@ func listen() {
 			)
 		case spec.HEARTBEAT:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
-			lenOld, lenNew := len(memberMap), len(theirMemberMap)
+			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			log.Printf(
-				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
-				bb[2],
-				len(memberMap),
-				lenOld-lenNew,
-				len(suspicionMap),
-			)
+			// log.Printf(
+			// 	"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
+			// 	bb[2],
+			// 	len(memberMap),
+			// 	lenOld-lenNew,
+			// 	len(suspicionMap),
+			// )
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
@@ -255,11 +323,16 @@ func listenForLeave() {
 }
 
 // Periodically send out heartbeat messages with piggybacked membership map info.
+// Make sure that the introducer isn't dead and begin a leader election if they are
 func heartbeat(introducer bool) {
 	for {
 		if len(memberMap) == 1 && !introducer {
 			log.Printf("[ORPHANED]: [SELFPID=%d] attempting to reconnect with introducer to find new peers.", selfPID)
 			joinNetwork()
+		}
+		if !introducer {
+			// Check for Leader liveness
+			checkLeaderLiveness()
 		}
 		spec.CollectGarbage(
 			selfPID,
@@ -268,7 +341,7 @@ func heartbeat(introducer bool) {
 			&suspicionMap,
 			&fingerTable,
 		)
-		spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
+		spec.RefreshMemberMap(selfIP, selfPID, &memberMap, introducer)
 		message := fmt.Sprintf(
 			"%d%s%s%s%d",
 			spec.HEARTBEAT, delimiter,
@@ -287,6 +360,40 @@ func heartbeat(introducer bool) {
 	}
 }
 
+// Check the leader is alive. If not, initiate a new election
+func checkLeaderLiveness() {
+	// Only check if it's been sufficient time since we last checked
+	if time.Now().Unix()-electionInitiated > retryElectionInterval {
+		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", introducerAddress, introducerPort))
+		if err != nil {
+			log.Println(spec.FmtMemberMap(selfPID, &memberMap))
+			log.Println("[ELECTME] Leader dead! Initiating election. ")
+			electionInitiated = time.Now().Unix()
+
+			electionForward(electionMessage())
+		} else {
+			conn.Close()
+		}
+	}
+
+}
+
+// Formats the election message, sets our Electing state = 1, sends message off to nearest neighbor
+func electionForward(message string) {
+	if len(memberMap) > 1 {
+		monitors := spec.GetMonitors(selfPID, m, &memberMap)
+		succ1 := monitors[len(monitors)-1]
+		sendMessage(succ1, message, true)
+		electionState = spec.ELECTING
+	} else {
+		log.Println("[ELECTFAIL] No other peers to run election with.")
+	}
+}
+
+func electionMessage() string {
+	return fmt.Sprintf("%d%s%s%s%d", spec.ELECTME, delimiter, selfIP, delimiter, selfPID)
+}
+
 func joinNetwork() {
 	for {
 		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", introducerAddress, introducerPort))
@@ -301,14 +408,20 @@ func joinNetwork() {
 	}
 }
 
-func sendMessage(PID int, message string) {
+func sendMessage(PID int, message string, election bool) {
 	// Check to see if that PID is in our membership list
+	var targetPort int
 	target, ok := memberMap[PID]
 	if !ok {
 		log.Printf("sendMessage(): PID %d not in memberMap. Skipping.", PID)
 		return
 	}
-	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", target.IP, port))
+	if election {
+		targetPort = electionPort
+	} else {
+		targetPort = port
+	}
+	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", target.IP, targetPort))
 	if err != nil {
 		log.Fatal(err)
 	}

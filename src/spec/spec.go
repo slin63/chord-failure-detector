@@ -13,10 +13,18 @@ import (
 )
 
 const (
+	// Message codes
 	JOIN = iota
 	JOINREPLY
 	LEAVE
 	HEARTBEAT
+	ELECTME // Self election message
+	ELECTED // Message with elected candidate
+
+	// Election states
+	PEACE
+	ELECTING
+	ELECTEDSELF
 )
 
 const timeFail = 15
@@ -32,6 +40,7 @@ var mux = &sync.Mutex{}
 type MemberNode struct {
 	// Address info formatted ip_address
 	IP        string
+	Leader    bool
 	Timestamp int64
 	Alive     bool
 }
@@ -77,12 +86,13 @@ func SetMemberMap(k int, v *MemberNode, memberMap *map[int]*MemberNode) {
 }
 
 // Refresh the self node's entry inside the membership table
-func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode) {
+func RefreshMemberMap(selfIP string, selfPID int, memberMap *map[int]*MemberNode, leader bool) {
 	memberMapSem.Lock()
 	(*memberMap)[selfPID] = &MemberNode{
 		IP:        selfIP,
 		Timestamp: time.Now().Unix(),
 		Alive:     true,
+		Leader:    leader,
 	}
 	memberMapSem.Unlock()
 }
@@ -209,7 +219,7 @@ func Disseminate(
 	selfPID int,
 	fingertable *map[int]int,
 	memberMap *map[int]*MemberNode,
-	sendMessage func(int, string),
+	sendMessage func(int, string, bool),
 ) {
 	if len(*memberMap) > 1 {
 		// Identify predecessor & 2 successors, or less if not available
@@ -218,7 +228,7 @@ func Disseminate(
 		// Mix monitors with targets in fingertable
 		targets := GetTargets(selfPID, fingertable, &monitors)
 		for _, PID := range targets {
-			sendMessage(PID, message)
+			sendMessage(PID, message, false)
 		}
 	}
 }
@@ -235,7 +245,7 @@ func GetTargets(selfPID int, fingertable *map[int]int, monitors *[]int) []int {
 	return append(targets, *monitors...)
 }
 
-// Identify the PID of node directly behind the self node
+// Identify the PID of node [pred, succ1, succ2] (in that order)
 func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
@@ -280,9 +290,9 @@ func FmtMemberMap(selfPID int, m *map[int]*MemberNode) string {
 	var o = "\n----------------------\n"
 	for PID, nodePtr := range *m {
 		if selfPID == PID {
-			o += fmt.Sprintf("* PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+			o += fmt.Sprintf("* PID %v: Time: %v Alive: %v Leader: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive, (*nodePtr).Leader)
 		} else {
-			o += fmt.Sprintf("  PID %v: Time: %v Alive: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive)
+			o += fmt.Sprintf("  PID %v: Time: %v Alive: %v Leader: %v\n", PID, (*nodePtr).Timestamp, (*nodePtr).Alive, (*nodePtr).Leader)
 		}
 	}
 	o += "----------------------\n"
