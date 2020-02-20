@@ -20,3 +20,7 @@ func main() {
 
 	node.Live(isIntroducer, logf)
 }
+
+// docker run --network failure-detector_default failure-detector_pizza
+// docker run -e INTRODUCER=1 --network failure-detector_default failure-detector_introducer:latest
+// docker run --network failure-detector_default failure-detector_pizza

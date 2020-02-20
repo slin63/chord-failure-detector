@@ -39,14 +39,15 @@ var suspicionMap = make(map[int]int64)
 // [finger:PID]
 var fingerTable = make(map[int]int)
 
-var joinReplyChan = make(chan int, 10)
+var joinReplyLen = 10
+var joinReplyChan = make(chan int, joinReplyLen)
 
-const joinReplyInterval = 5
+const joinReplyInterval = 1
 const joinAttemptInterval = 20
 const heartbeatInterval = 5
 const retryElectionInterval = 60
 
-const m int = 7
+const m int = 9
 const electionPort = 6002
 const introducerPort = 6001
 const port = 6000
@@ -90,6 +91,7 @@ func Live(introducer bool, logf string) {
 		joinNetwork()
 	} else {
 		go listenForJoins()
+		go dispatchJoinReplies()
 	}
 
 	// Beat that drum
@@ -165,17 +167,19 @@ func listenForJoins() {
 			// Add message to queue:
 			// Send the joiner a membership map so that it can discover more peers.
 			joinReplyChan <- newPID
-			go func() {
-				for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
-					for pid := range joinReplyChan {
-						sendMessage(
-							pid,
-							fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
-							false,
-						)
-					}
-				}
-			}()
+		}
+	}
+}
+
+// Send out joinReplyLen / 2 [JOINREPLY] messages every joinReplyInterval seconds
+func dispatchJoinReplies() {
+	for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
+		for i := 0; i < (joinReplyLen / 2); i++ {
+			sendMessage(
+				<-joinReplyChan,
+				fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
+				false,
+			)
 		}
 	}
 }
@@ -278,7 +282,7 @@ func listenForElections() {
 
 // Listen function to handle: HEARTBEAT, JOINREPLY
 func listen() {
-	var p [512]byte
+	var p [1024]byte
 
 	ser, err := net.ListenUDP("udp", &heartbeatAddr)
 	if err != nil {
@@ -311,17 +315,16 @@ func listen() {
 			)
 		case spec.HEARTBEAT:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
-			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			// # TODO: uncomment
-			// log.Printf(
-			// 	"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
-			// 	bb[2],
-			// 	len(memberMap),
-			// 	lenOld-lenNew,
-			// 	len(suspicionMap),
-			// )
+			lenOld, lenNew := len(memberMap), len(theirMemberMap)
+			log.Printf(
+				"[HEARTBEAT] from PID=%s. (len(mM)=%d diff(mM)=%d len(sM)=%d) ",
+				bb[2],
+				len(memberMap),
+				lenOld-lenNew,
+				len(suspicionMap),
+			)
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
