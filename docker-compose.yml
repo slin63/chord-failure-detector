@@ -1,21 +1,21 @@
 version: '3'
 
-# Fuck.
 services:
   introducer:
     container_name: introducer
     environment:
       - INTRODUCER=1
-    ports:
-      - "6000:6000"
-      - "6001:6001"
     build: .
 
-  # Would like to use ./wait-for-it.sh but have no idea how to get containers to be able to curl each other
-  pizza:
+  worker:
     depends_on:
       - "introducer"
     build: .
+
+  # pizza:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
 
   # wasabipeas:
   #   depends_on:
@@ -47,13 +47,52 @@ services:
   #     - "introducer"
   #   build: .
 
-
   # lemontart:
   #   depends_on:
   #     - "introducer"
   #   build: .
 
   # hempmilk:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # fork:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # spoon:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # knife:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # butter:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # butterbutter:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # yerbamate:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # fish:
+  #   depends_on:
+  #     - "introducer"
+  #   build: .
+
+  # fishsticks:
   #   depends_on:
   #     - "introducer"
   #   build: .
