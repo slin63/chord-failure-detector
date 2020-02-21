@@ -31,13 +31,14 @@ var suspicionMap = make(map[int]int64)
 // [finger:PID]
 var fingerTable = make(map[int]int)
 
-var joinReplyChan = make(chan int, 10)
+var joinReplyLen = 10
+var joinReplyChan = make(chan int, joinReplyLen)
 
 const joinReplyInterval = 5
 const joinAttemptInterval = 20
 const heartbeatInterval = 5
 
-const m int = 7
+const m int = 8
 const introducerPort = 6001
 const port = 6000
 const delimiter = "//"
@@ -73,6 +74,7 @@ func Live(introducer bool, logf string) {
 		joinNetwork()
 	} else {
 		go listenForJoins()
+		go dispatchJoinReplies()
 	}
 
 	// Listen for messages
@@ -145,23 +147,25 @@ func listenForJoins() {
 			// Add message to queue:
 			// Send the joiner a membership map so that it can discover more peers.
 			joinReplyChan <- newPID
-			go func() {
-				for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
-					for pid := range joinReplyChan {
-						sendMessage(
-							pid,
-							fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
-						)
-					}
-				}
-			}()
+		}
+	}
+}
+
+// Send out joinReplyLen / 2 [JOINREPLY] messages every joinReplyInterval seconds
+func dispatchJoinReplies() {
+	for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
+		for i := 0; i < (joinReplyLen / 2); i++ {
+			sendMessage(
+				<-joinReplyChan,
+				fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
+			)
 		}
 	}
 }
 
 // Listen function to handle: HEARTBEAT, JOINREPLY
 func listen() {
-	var p [512]byte
+	var p [1024]byte
 
 	ser, err := net.ListenUDP("udp", &heartbeatAddr)
 	if err != nil {
