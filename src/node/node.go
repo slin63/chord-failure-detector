@@ -23,13 +23,11 @@ var selfIP string
 var selfPID int
 
 // [PID:*memberNode]
-type MemberMapT map[int]*spec.MemberNode
 
 var memberMap = make(map[int]*spec.MemberNode)
 
 // [PID:Unix timestamp at time of death]
 // Assume all PIDs here point to dead nodes, waiting to be deleted
-type SuspicionMapT map[int]int64
 
 var suspicionMap = make(map[int]int64)
 
@@ -54,6 +52,12 @@ var RPCAddr net.TCPAddr
 
 // RPCs
 type Membership int
+type Self struct {
+	SelfPID    int
+	Introducer bool
+}
+type SuspicionMapT map[int]int64
+type MemberMapT map[int]*spec.MemberNode
 
 func Live(introducer bool, logf string) {
 	selfIP = getSelfIP()
@@ -370,6 +374,12 @@ func serveRPCs() {
 	rpc.Register(membership)
 	rpc.Accept(inbound)
 	log.Println("[RPC] serveRPCs done")
+}
+
+func (l *Membership) SelfPID(_ int, reply *Self) error {
+	log.Println("[RPC] Membership.MembershipMap called")
+	*reply = selfPID
+	return nil
 }
 
 func (l *Membership) MembershipMap(_ int, reply *MemberMapT) error {
