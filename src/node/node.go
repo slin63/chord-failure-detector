@@ -46,6 +46,7 @@ const joinReplyInterval = 1
 const joinAttemptInterval = 20
 const heartbeatInterval = 5
 const retryElectionInterval = 60
+const concludeElectionInterval = 10
 
 const m int = 9
 const electionPort = 6002
@@ -229,7 +230,6 @@ func listenForElections() {
 				} else {
 					electionForward(string(original))
 				}
-				electionState = spec.AWAITINGQUORUM
 			} else {
 				log.Printf("[ELECTMEREJECT] Ignored [ELECTME] from [PID=%d]!", theirPID)
 			}
@@ -238,15 +238,18 @@ func listenForElections() {
 		// Disseminate the ELECTED message.
 		// Let the ELECTED process know we've received the message (to form the quorum)
 		case spec.ELECTED:
-			electedPID, _ := strconv.Atoi(string(bb[1]))
-			timestamp := bb[2]
-			electionState = spec.VOTING
-			_, ok := electedMap[electedPID]
-			if !ok {
-				electedMap[electedPID] = electedPID
-				spec.Disseminate(string(original), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
-				sendMessage(electedPID, spec.ElectedConfMessage(delimiter, selfPID), true)
-				log.Printf("[ELECTED] [PID=%d] [TS=%s]. Disseminated and replied with confirmation!", electedPID, timestamp)
+			if electionState == spec.ELECTING {
+				electedPID, _ := strconv.Atoi(string(bb[1]))
+				resetElectionStates(electedPID)
+				timestamp := bb[2]
+				electionState = spec.VOTING
+				_, ok := electedMap[electedPID]
+				if !ok {
+					electedMap[electedPID] = electedPID
+					spec.Disseminate(string(original), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
+					sendMessage(electedPID, spec.ElectedConfMessage(delimiter, selfPID), true)
+					log.Printf("[ELECTED] [PID=%d] [TS=%s]. Disseminated and replied with confirmation!", electedPID, timestamp)
+				}
 			}
 
 		// We received a election confirmation from someone.
@@ -254,14 +257,18 @@ func listenForElections() {
 		// if we meet the quorom, disseminate a ELECTIONDONE message
 		//   and update our own memberMap entry to reflect the new leadership.
 		case spec.ELECTEDCONF:
-			quorum := spec.EvaluateQuorum(&memberMap, &suspicionMap)
-			confPID, _ := strconv.Atoi(string(bb[1]))
-			electedConfMap[confPID] = confPID
-			if len(electedConfMap) >= quorum {
-				spec.Disseminate(spec.ElectionDoneMessage(delimiter, selfPID), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
-				spec.RefreshMemberMap(selfIP, selfPID, &memberMap, true)
-			} else {
-				log.Printf("[ELECTEDCONF] from [PID=%d]. %d/%d votes needed", confPID, len(electedConfMap), quorum)
+			if electionState == spec.AWAITINGQUORUM {
+				quorum := spec.EvaluateQuorum(&memberMap, &suspicionMap)
+				confPID, _ := strconv.Atoi(string(bb[1]))
+				electedConfMap[confPID] = confPID
+				if len(electedConfMap) >= quorum {
+					spec.Disseminate(spec.ElectionDoneMessage(delimiter, selfPID, selfIP), m, selfPID, &fingerTable, &memberMap, sendMessage, true)
+					spec.RefreshMemberMap(selfIP, selfPID, &memberMap, true)
+					resetElectionStates(selfPID)
+					// introducer = true
+				} else {
+					log.Printf("[ELECTEDCONF] from [PID=%d]. %d/%d votes needed", confPID, len(electedConfMap), quorum)
+				}
 			}
 
 		// The election is over, clear our election state and reset our election maps
@@ -270,14 +277,31 @@ func listenForElections() {
 				// TODO (02/18 @ 16:30): reset election state/maps, make sure new leader actually is working
 				//  also need to update introducerAddress = memberMap[newLeaderPID]
 				newLeaderPID, _ := strconv.Atoi(string(bb[1]))
-				log.Printf("[ELECTEDDONE] from [PID=%d]. Clearing election states!", newLeaderPID)
-				electionState = spec.NOELECTION
+				newLeaderIP := string(bb[2])
+				resetElectionStates(newLeaderPID)
+				memberMap[newLeaderPID].Leader = true
+				introducerAddress = newLeaderIP
+				log.Printf("[ELECTIONDONE] from [PID=%d]. Cleared election states! ", newLeaderPID)
 			}
 
 		default:
 			log.Printf("[NOACTION] Received replyCode: [%d]", replyCode)
 		}
 	}
+}
+
+// Reset all election states
+func resetElectionStates(leaderPID int) {
+	// remove "old" leader from member and suspicion maps
+	spec.PurgeOldLeader(leaderPID, &memberMap, &suspicionMap)
+	electionState = spec.NOELECTION
+
+	electionMap = make(map[int]int)
+	electedMap = make(map[int]int)
+	electedConfMap = make(map[int]int)
+	electionInitiated = 0
+	// time.Sleep(time.Second * concludeElectionState)
+
 }
 
 // Listen function to handle: HEARTBEAT, JOINREPLY
@@ -302,6 +326,8 @@ func listen() {
 			log.Fatal(err)
 		}
 
+		log.Printf("[PID=%d] [ELECTIONSTATE=%d]", selfPID, electionState)
+
 		switch replyCode {
 		// We successfully joined the network
 		// Decode the membership gob and merge with our own membership list.
@@ -317,14 +343,16 @@ func listen() {
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			lenOld, lenNew := len(memberMap), len(theirMemberMap)
-			log.Printf(
-				"[HEARTBEAT] from PID=%s. (len(mM)=%d diff(mM)=%d len(sM)=%d) ",
-				bb[2],
-				len(memberMap),
-				lenOld-lenNew,
-				len(suspicionMap),
-			)
+			// TODO (02/20 @ 16:15): uncommENT this
+			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
+
+			// log.Printf(
+			// 	"[HEARTBEAT] from PID=%s. (len(mM)=%d diff(mM)=%d len(sM)=%d) ",
+			// 	bb[2],
+			// 	len(memberMap),
+			// 	lenOld-lenNew,
+			// 	len(suspicionMap),
+			// )
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
@@ -425,7 +453,6 @@ func checkLeaderLiveness() {
 				electionInitiated = time.Now().Unix()
 				electionForward(spec.ElectionMessage(delimiter, selfPID))
 			}
-
 		} else {
 			conn.Close()
 		}

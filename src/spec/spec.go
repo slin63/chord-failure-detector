@@ -70,6 +70,23 @@ func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	return b.Bytes()
 }
 
+func PurgeOldLeader(leaderPID int, memberMap *map[int]*MemberNode, suspicionMap *map[int]int64) int {
+	// safely remove leader from suspicion map and member map
+	var oldLeaderPID int
+	memberMapSem.Lock()
+	for PID, member := range *memberMap {
+		if member.Leader == true && PID != leaderPID {
+			oldLeaderPID = PID
+		}
+	}
+	suspicionMapSem.Lock()
+	delete(*memberMap, oldLeaderPID)
+	delete(*suspicionMap, oldLeaderPID)
+	memberMapSem.Unlock()
+	suspicionMapSem.Unlock()
+	return oldLeaderPID
+}
+
 func DecodeMemberMap(b []byte) map[int]*MemberNode {
 	buf := bytes.NewBuffer(b)
 	gob.Register(MemberNode{})
@@ -269,10 +286,14 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 	// Successor PID directly ahead, and so forth
 	// (1 << m == 2^m)
 	var monitors []int
+	log.Println("GetMonitors(A): selfPID=", selfPID)
+	log.Println("GetMonitors(B): selfPID+(1<<m)=", selfPID+(1<<m))
+	log.Println("GetMonitors(C): PIDs=", PIDs)
 	selfIdx := index(PIDs, selfPID+(1<<m))
 	predIdx := (selfIdx - 1) % len(PIDs)
 	succIdx := (selfIdx + 1) % len(PIDs)
 	succ2Idx := (selfIdx + 2) % len(PIDs)
+	log.Println("GetMonitors(D): selfIdx=", selfIdx)
 
 	for _, idx := range []int{predIdx, succIdx, succ2Idx} {
 		PID := PIDs[idx] % (1 << m)
@@ -280,6 +301,7 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 			monitors = append(monitors, PID)
 		}
 	}
+	log.Println("GetMonitors(F): monitors=", monitors)
 
 	return monitors
 }
@@ -314,8 +336,8 @@ func ElectedConfMessage(delimiter string, selfPID int) string {
 	return fmt.Sprintf("%d%s%d", ELECTEDCONF, delimiter, selfPID)
 }
 
-func ElectionDoneMessage(delimiter string, selfPID int) string {
-	return fmt.Sprintf("%d%s%d", ELECTIONDONE, delimiter, selfPID)
+func ElectionDoneMessage(delimiter string, selfPID int, selfAddress string) string {
+	return fmt.Sprintf("%d%s%d", ELECTIONDONE, delimiter, selfPID, delimiter, selfAddress)
 }
 
 func index(a []int, val int) int {
