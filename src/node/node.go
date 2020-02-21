@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/rpc"
 	"os"
 	"os/signal"
 	"strconv"
@@ -22,10 +23,14 @@ var selfIP string
 var selfPID int
 
 // [PID:*memberNode]
+type MemberMapT map[int]*spec.MemberNode
+
 var memberMap = make(map[int]*spec.MemberNode)
 
 // [PID:Unix timestamp at time of death]
 // Assume all PIDs here point to dead nodes, waiting to be deleted
+type SuspicionMapT map[int]int64
+
 var suspicionMap = make(map[int]int64)
 
 // [finger:PID]
@@ -39,11 +44,16 @@ const joinAttemptInterval = 20
 const heartbeatInterval = 5
 
 const m int = 8
+const RPCPort = 6002
 const introducerPort = 6001
-const port = 6000
+const heartbeatPort = 6000
 const delimiter = "//"
 
 var heartbeatAddr net.UDPAddr
+var RPCAddr net.TCPAddr
+
+// RPCs
+type Membership int
 
 func Live(introducer bool, logf string) {
 	selfIP = getSelfIP()
@@ -64,9 +74,14 @@ func Live(introducer bool, logf string) {
 	mw := io.MultiWriter(os.Stdout, f)
 	log.SetOutput(mw)
 
+	// Initialize addresses
 	heartbeatAddr = net.UDPAddr{
 		IP:   net.ParseIP(selfIP),
-		Port: port,
+		Port: heartbeatPort,
+	}
+	RPCAddr = net.TCPAddr{
+		IP:   net.ParseIP(selfIP),
+		Port: RPCPort,
 	}
 
 	// Join the network if you're not the introducer
@@ -85,6 +100,9 @@ func Live(introducer bool, logf string) {
 
 	// Listen for leaves
 	go listenForLeave()
+
+	// Serve RPCs
+	go serveRPCs()
 
 	wg.Wait()
 }
@@ -198,16 +216,16 @@ func listen() {
 			)
 		case spec.HEARTBEAT:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
-			lenOld, lenNew := len(memberMap), len(theirMemberMap)
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			log.Printf(
-				"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
-				bb[2],
-				len(memberMap),
-				lenOld-lenNew,
-				len(suspicionMap),
-			)
+			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
+			// log.Printf(
+			// 	"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
+			// 	bb[2],
+			// 	len(memberMap),
+			// 	lenOld-lenNew,
+			// 	len(suspicionMap),
+			// )
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
@@ -277,6 +295,12 @@ func heartbeat(introducer bool) {
 			spec.EncodeMemberMap(&memberMap), delimiter,
 			selfPID,
 		)
+		log.Printf(
+			"[HEARTBEAT] [selfPID=%d] [len(memberMap)=%d] [len(suspicionMap)=%d] ",
+			selfPID,
+			len(memberMap),
+			len(suspicionMap),
+		)
 		spec.Disseminate(
 			message,
 			m,
@@ -310,7 +334,7 @@ func sendMessage(PID int, message string) {
 		log.Printf("sendMessage(): PID %d not in memberMap. Skipping.", PID)
 		return
 	}
-	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", target.IP, port))
+	conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", target.IP, heartbeatPort))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -333,4 +357,29 @@ func getSelfIP() string {
 		}
 	}
 	return ip
+}
+
+// RPCs
+func serveRPCs() {
+	log.Println("[RPC] serveRPCs launched")
+	inbound, err := net.ListenTCP("tcp", &RPCAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	membership := new(Membership)
+	rpc.Register(membership)
+	rpc.Accept(inbound)
+	log.Println("[RPC] serveRPCs done")
+}
+
+func (l *Membership) MembershipMap(_ int, reply *MemberMapT) error {
+	log.Println("[RPC] Membership.MembershipMap called")
+	*reply = memberMap
+	return nil
+}
+
+func (l *Membership) SuspicionMap(_ int, reply *SuspicionMapT) error {
+	log.Println("[RPC] Membership.SuspicionMap called")
+	*reply = suspicionMap
+	return nil
 }
