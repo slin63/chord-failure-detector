@@ -52,11 +52,8 @@ var RPCAddr net.TCPAddr
 
 // RPCs
 type Membership int
-type Self struct {
-	SelfPID    int
-	Introducer bool
-}
 type SuspicionMapT map[int]int64
+type FingerTableT map[int]int
 type MemberMapT map[int]*spec.MemberNode
 
 func Live(introducer bool, logf string) {
@@ -376,7 +373,7 @@ func serveRPCs() {
 	log.Println("[RPC] serveRPCs done")
 }
 
-func (l *Membership) SelfPID(_ int, reply *Self) error {
+func (l *Membership) SelfPID(_ int, reply *int) error {
 	log.Println("[RPC] Membership.MembershipMap called")
 	*reply = selfPID
 	return nil
@@ -391,5 +388,11 @@ func (l *Membership) MembershipMap(_ int, reply *MemberMapT) error {
 func (l *Membership) SuspicionMap(_ int, reply *SuspicionMapT) error {
 	log.Println("[RPC] Membership.SuspicionMap called")
 	*reply = suspicionMap
+	return nil
+}
+
+func (l *Membership) FingerTable(_ int, reply *FingerTableT) error {
+	log.Println("[RPC] Membership.FingerTable called")
+	*reply = fingerTable
 	return nil
 }
