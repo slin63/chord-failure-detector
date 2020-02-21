@@ -1,6 +1,5 @@
 version: '3'
 
-# Fuck.
 services:
   introducer:
     container_name: introducer
@@ -11,49 +10,7 @@ services:
       - "6001:6001"
     build: .
 
-  # Would like to use ./wait-for-it.sh but have no idea how to get containers to be able to curl each other
-  pizza:
+  worker:
     depends_on:
       - "introducer"
     build: .
-
-  # wasabipeas:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # calzone:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # lajiao:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # mala:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # spicypeanuts:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # chocolatealmonds:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-
-  # lemontart:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
-
-  # hempmilk:
-  #   depends_on:
-  #     - "introducer"
-  #   build: .
