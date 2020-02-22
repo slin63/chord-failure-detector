@@ -180,13 +180,14 @@ func listenForJoins() {
 
 // Send out joinReplyLen / 2 [JOINREPLY] messages every joinReplyInterval seconds
 func dispatchJoinReplies() {
-	for range time.Tick(time.Second * time.Duration(joinReplyInterval)) {
+	for {
 		for i := 0; i < (joinReplyLen / 2); i++ {
 			sendMessage(
 				<-joinReplyChan,
 				fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
 			)
 		}
+		time.Sleep(joinReplyInterval * time.Second)
 	}
 }
 
