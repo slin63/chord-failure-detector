@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/rpc"
 	"os"
 	"os/signal"
@@ -46,6 +47,7 @@ const RPCPort = 6002
 const introducerPort = 6001
 const heartbeatPort = 6000
 const delimiter = "//"
+const logHeartbeats = false
 
 var heartbeatAddr net.UDPAddr
 var RPCAddr net.TCPAddr
@@ -55,6 +57,12 @@ type Membership int
 type SuspicionMapT map[int]int64
 type FingerTableT map[int]int
 type MemberMapT map[int]*spec.MemberNode
+type Self struct {
+	PID          int
+	MemberMap    MemberMapT
+	FingerTable  FingerTableT
+	SuspicionMap SuspicionMapT
+}
 
 func Live(introducer bool, logf string) {
 	selfIP = getSelfIP()
@@ -219,14 +227,6 @@ func listen() {
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
-			// lenOld, lenNew := len(memberMap), len(theirMemberMap)
-			// log.Printf(
-			// 	"[HEARTBEAT] from PID=%s. (len(memberMap)=%d diff(memberMap)=%d) (len(suspicionMap)=%d) ",
-			// 	bb[2],
-			// 	len(memberMap),
-			// 	lenOld-lenNew,
-			// 	len(suspicionMap),
-			// )
 		case spec.LEAVE:
 			leavingPID, err := strconv.Atoi(string(bb[1]))
 			leavingTimestamp, err := strconv.Atoi(string(bb[2]))
@@ -296,12 +296,14 @@ func heartbeat(introducer bool) {
 			spec.EncodeMemberMap(&memberMap), delimiter,
 			selfPID,
 		)
-		log.Printf(
-			"[HEARTBEAT] [selfPID=%d] [len(memberMap)=%d] [len(suspicionMap)=%d] ",
-			selfPID,
-			len(memberMap),
-			len(suspicionMap),
-		)
+		if logHeartbeats {
+			log.Printf(
+				"[HEARTBEAT] [selfPID=%d] [len(memberMap)=%d] [len(suspicionMap)=%d] ",
+				selfPID,
+				len(memberMap),
+				len(suspicionMap),
+			)
+		}
 		spec.Disseminate(
 			message,
 			m,
@@ -363,36 +365,19 @@ func getSelfIP() string {
 // RPCs
 func serveRPCs() {
 	log.Println("[RPC] serveRPCs launched")
-	inbound, err := net.ListenTCP("tcp", &RPCAddr)
-	if err != nil {
-		log.Fatal(err)
+	listener := new(Membership)
+	rpc.Register(listener)
+	rpc.HandleHTTP()
+	l, e := net.Listen("tcp", ":"+strconv.Itoa(RPCPort))
+	if e != nil {
+		log.Fatal("listen error:", e)
 	}
-	membership := new(Membership)
-	rpc.Register(membership)
-	rpc.Accept(inbound)
+	go http.Serve(l, nil)
 	log.Println("[RPC] serveRPCs done")
 }
 
-func (l *Membership) SelfPID(_ int, reply *int) error {
-	log.Println("[RPC] Membership.MembershipMap called")
-	*reply = selfPID
-	return nil
-}
-
-func (l *Membership) MembershipMap(_ int, reply *MemberMapT) error {
-	log.Println("[RPC] Membership.MembershipMap called")
-	*reply = memberMap
-	return nil
-}
-
-func (l *Membership) SuspicionMap(_ int, reply *SuspicionMapT) error {
-	log.Println("[RPC] Membership.SuspicionMap called")
-	*reply = suspicionMap
-	return nil
-}
-
-func (l *Membership) FingerTable(_ int, reply *FingerTableT) error {
-	log.Println("[RPC] Membership.FingerTable called")
-	*reply = fingerTable
+func (l *Membership) Self(_ int, reply *Self) error {
+	log.Println("[RPC] Membership.Self called")
+	*reply = Self{selfPID, memberMap, fingerTable, suspicionMap}
 	return nil
 }
