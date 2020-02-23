@@ -58,6 +58,7 @@ type SuspicionMapT map[int]int64
 type FingerTableT map[int]int
 type MemberMapT map[int]*spec.MemberNode
 type Self struct {
+	M            int
 	PID          int
 	MemberMap    MemberMapT
 	FingerTable  FingerTableT
@@ -378,7 +379,9 @@ func serveRPCs() {
 }
 
 func (l *Membership) Self(_ int, reply *Self) error {
-	log.Println("[RPC] Membership.Self called")
-	*reply = Self{selfPID, memberMap, fingerTable, suspicionMap}
+	if logHeartbeats {
+		log.Println("[RPC] Membership.Self called")
+	}
+	*reply = Self{m, selfPID, memberMap, fingerTable, suspicionMap}
 	return nil
 }
