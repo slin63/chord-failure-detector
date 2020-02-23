@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"sync"
 	"time"
 
 	"../sem"
@@ -25,9 +24,7 @@ const timeCleanup = 20
 // Globally deny access to certain memberMap & suspicionMap operations.
 var memberMapSem = make(sem.Semaphore, 1)
 var suspicionMapSem = make(sem.Semaphore, 1)
-
-// Mutex to deny access to stretches of code
-var mux = &sync.Mutex{}
+var fingerTableSem = make(sem.Semaphore, 1)
 
 type MemberNode struct {
 	// Address info formatted ip_address
@@ -113,7 +110,6 @@ func SetSuspicionMap(k int, v int64, suspicionMap *map[int]int64) {
 }
 
 func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID, m int) {
-	mux.Lock()
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
 	var PIDsExtended []int
@@ -128,6 +124,7 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 
 	// Populate the finger table.
 	var last int = 0
+	fingerTableSem.Lock()
 	for i := 0; i < m-1; i++ {
 		ith := selfPID + (1<<i)%(1<<m)
 		for ; last < len(PIDs); last++ {
@@ -139,7 +136,7 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 			}
 		}
 	}
-	mux.Unlock()
+	fingerTableSem.Unlock()
 }
 
 // Periodically compare our suspicion array & memberMap and remove
@@ -225,12 +222,14 @@ func Disseminate(
 
 func GetTargets(selfPID int, fingertable *map[int]int, monitors *[]int) []int {
 	var targets []int
+	fingerTableSem.Lock()
 	for _, PID := range *fingertable {
 		// NOT its own PID AND monitors DOESN'T contain this PID AND targets DOESN'T contain this PID
 		if PID != selfPID && (index(*monitors, PID) == -1) && (index(targets, PID) == -1) {
 			targets = append(targets, PID)
 		}
 	}
+	fingerTableSem.Unlock()
 
 	return append(targets, *monitors...)
 }
