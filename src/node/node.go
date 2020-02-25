@@ -67,7 +67,7 @@ type Self struct {
 
 func Live(introducer bool, logf string) {
 	selfIP = getSelfIP()
-	selfPID = hashing.GetPID(selfIP, m)
+	selfPID = hashing.MHash(selfIP, m)
 	spec.ReportOnline(selfIP, selfPID, introducer)
 
 	// So the program doesn't die
@@ -144,7 +144,7 @@ func listenForJoins() {
 		switch replyCode {
 		case spec.JOIN:
 			// Update our own member map & fts
-			newPID := hashing.GetPID(remoteaddr.IP.String(), m)
+			newPID := hashing.MHash(remoteaddr.IP.String(), m)
 
 			// Check for potential collisions / outdated memberMap
 			if node, exists := memberMap[newPID]; exists {

@@ -239,10 +239,13 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
 	var PIDsExtended []int
+	memberMapSem.Lock()
 	for PID := range *memberMap {
 		PIDs = append(PIDs, PID)
 		PIDsExtended = append(PIDsExtended, PID+(1<<m))
 	}
+	memberMapSem.Unlock()
+
 	PIDs = append(PIDs, PIDsExtended...)
 	sort.Ints(PIDs)
 
