@@ -44,7 +44,10 @@ func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	e := gob.NewEncoder(b)
 
 	// Encoding the map
+	memberMapSem.Lock()
 	err := e.Encode(*memberMap)
+	memberMapSem.Unlock()
+
 	if err != nil {
 		log.Fatal("EncodeMemberMap():", err)
 	}
