@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"sync"
 	"time"
-
-	"../sem"
 )
 
 const (
@@ -22,9 +21,9 @@ const timeFail = 15
 const timeCleanup = 20
 
 // Globally deny access to certain memberMap & suspicionMap operations.
-var memberMapSem = make(sem.Semaphore, 1)
-var suspicionMapSem = make(sem.Semaphore, 1)
-var fingerTableSem = make(sem.Semaphore, 1)
+var memberMapSem sync.RWMutex
+var suspicionMapSem sync.RWMutex
+var fingerTableSem sync.RWMutex
 
 type MemberNode struct {
 	// Address info formatted ip_address
@@ -44,9 +43,9 @@ func EncodeMemberMap(memberMap *map[int]*MemberNode) []byte {
 	e := gob.NewEncoder(b)
 
 	// Encoding the map
-	memberMapSem.Lock()
+	memberMapSem.RLock()
 	err := e.Encode(*memberMap)
-	memberMapSem.Unlock()
+	memberMapSem.RUnlock()
 
 	if err != nil {
 		log.Fatal("EncodeMemberMap():", err)
@@ -159,7 +158,7 @@ func CollectGarbage(
 
 	// Check for dying members in memberMap, add to suspicion map to cleanup
 	// Lock up memberMap here because we're iterating over it.
-	memberMapSem.Lock()
+	memberMapSem.RLock()
 	suspicionMapSem.Lock()
 	for PID, nodePtr := range *memberMap {
 		if PID == selfPID {
@@ -188,8 +187,10 @@ func CollectGarbage(
 			nodesToDelete = append(nodesToDelete, PID)
 		}
 	}
+	memberMapSem.RUnlock()
 
 	// Write to suspicion and member maps, update fingerTable so we don't try to disseminate to dead nodes.
+	memberMapSem.Lock()
 	for _, PID := range nodesToRevive {
 		delete(*suspicionMap, PID)
 	}
@@ -225,14 +226,14 @@ func Disseminate(
 
 func GetTargets(selfPID int, fingertable *map[int]int, monitors *[]int) []int {
 	var targets []int
-	fingerTableSem.Lock()
+	fingerTableSem.RLock()
 	for _, PID := range *fingertable {
 		// NOT its own PID AND monitors DOESN'T contain this PID AND targets DOESN'T contain this PID
 		if PID != selfPID && (index(*monitors, PID) == -1) && (index(targets, PID) == -1) {
 			targets = append(targets, PID)
 		}
 	}
-	fingerTableSem.Unlock()
+	fingerTableSem.RUnlock()
 
 	return append(targets, *monitors...)
 }
@@ -242,12 +243,12 @@ func GetMonitors(selfPID, m int, memberMap *map[int]*MemberNode) []int {
 	// Get all PIDs and extend them with themselves + 2^m so that they "wrap around".
 	var PIDs []int
 	var PIDsExtended []int
-	memberMapSem.Lock()
+	memberMapSem.RLock()
 	for PID := range *memberMap {
 		PIDs = append(PIDs, PID)
 		PIDsExtended = append(PIDsExtended, PID+(1<<m))
 	}
-	memberMapSem.Unlock()
+	memberMapSem.RUnlock()
 
 	PIDs = append(PIDs, PIDsExtended...)
 	sort.Ints(PIDs)
@@ -281,7 +282,7 @@ func index(a []int, val int) int {
 }
 
 func FmtMemberMap(selfPID int, m *map[int]*MemberNode) string {
-	memberMapSem.Lock()
+	memberMapSem.RLock()
 	var o = "\n----------------------\n"
 	for PID, nodePtr := range *m {
 		if selfPID == PID {
@@ -291,6 +292,6 @@ func FmtMemberMap(selfPID int, m *map[int]*MemberNode) string {
 		}
 	}
 	o += "----------------------\n"
-	memberMapSem.Unlock()
+	memberMapSem.RUnlock()
 	return o
 }
