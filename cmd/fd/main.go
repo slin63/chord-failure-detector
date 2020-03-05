@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"./node"
+	"github.com/slin63/chord-failure-detector/internal/node"
 )
 
 const logf = "o.log"

@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"../config"
-	"../hashing"
-	"../spec"
+	"github.com/slin63/chord-failure-detector/internal/config"
+	"github.com/slin63/chord-failure-detector/internal/hashing"
+	"github.com/slin63/chord-failure-detector/internal/spec"
 )
 
 var selfIP string
