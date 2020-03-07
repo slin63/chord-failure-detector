@@ -38,9 +38,9 @@ var fingerTable = make(map[int]int)
 var joinReplyLen = 15
 var joinReplyChan = make(chan int, joinReplyLen)
 
-const joinReplyInterval = 3
-const joinAttemptInterval = 20
-const heartbeatInterval = 5
+const joinReplyInterval = 1
+const joinAttemptInterval = 5
+const heartbeatInterval = 2
 
 const m int = 8
 const RPCPort = 6002
