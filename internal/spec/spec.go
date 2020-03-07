@@ -17,8 +17,8 @@ const (
 	HEARTBEAT
 )
 
-const timeFail = 4
-const timeCleanup = 8
+const timeFail = 6
+const timeCleanup = 12
 
 // Globally deny access to certain memberMap & suspicionMap operations.
 var memberMapSem sync.RWMutex
