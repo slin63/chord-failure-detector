@@ -44,7 +44,7 @@ const joinReplyInterval = 1
 const joinAttemptInterval = 5
 const heartbeatInterval = 2
 
-const m int = 8
+const m int = 10
 const RPCPort = 6002
 const introducerPort = 6001
 const heartbeatPort = 6000
