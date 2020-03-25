@@ -38,7 +38,7 @@ var suspicionMap = make(map[int]int64)
 var fingerTable = make(map[int]int)
 
 var joinReplyLen = 15
-var joinReplyChan = make(chan int, joinReplyLen)
+var joinReplyChan = make(chan spec.JoinReply, joinReplyLen)
 
 const joinReplyInterval = 1
 const joinAttemptInterval = 5
@@ -164,7 +164,6 @@ func listenForJoins() {
 				IP:        remoteaddr.IP.String(),
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
-				Rejoin:    rejoin,
 			}
 			if rejoin {
 				log.Printf(
@@ -181,7 +180,7 @@ func listenForJoins() {
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			// Add message to queue:
 			// Send the joiner a membership map so that it can discover more peers.
-			joinReplyChan <- newPID
+			joinReplyChan <- spec.JoinReply{newPID, rejoin}
 			log.Printf(
 				"[JOIN] (PID=%d) (IP=%s) (T=%d) joined network. Added to memberMap & FT.",
 				newPID,
@@ -196,11 +195,11 @@ func listenForJoins() {
 func dispatchJoinReplies() {
 	for {
 		for i := 0; i < (joinReplyLen / 2); i++ {
-			PID := <-joinReplyChan
-			log.Printf("[JOINREPLY]: Dispatching message for [PID=%d]", PID)
+			jr := <-joinReplyChan
+			log.Printf("[JOINREPLY]: Dispatching message for [PID=%d]", jr.PID)
 			sendMessage(
-				PID,
-				fmt.Sprintf("%d%s%s", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap)),
+				jr.PID,
+				fmt.Sprintf("%d%s%s%s%v", spec.JOINREPLY, delimiter, spec.EncodeMemberMap(&memberMap), delimiter, jr.Rejoin),
 			)
 		}
 		time.Sleep(joinReplyInterval * time.Second)
@@ -236,7 +235,7 @@ func listen() {
 		// Register ourselves as a rejoin if possible.
 		case spec.JOINREPLY:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
-			rejoin = theirMemberMap[selfPID].Rejoin
+			rejoin = string(bb[2]) == "true"
 			if rejoin {
 				log.Printf("[REJOIN] Recognized as a REJOIN")
 			}

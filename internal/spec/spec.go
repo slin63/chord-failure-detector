@@ -30,7 +30,11 @@ type MemberNode struct {
 	IP        string
 	Timestamp int64
 	Alive     bool
-	Rejoin    bool
+}
+
+type JoinReply struct {
+	PID    int
+	Rejoin bool
 }
 
 func ReportOnline(IP string, PID int, isIntroducer bool) {
