@@ -22,6 +22,7 @@ import (
 
 var selfIP string
 var selfPID int
+var rejoin bool
 
 // [PID:*memberNode]
 
@@ -64,6 +65,7 @@ type Self struct {
 	MemberMap    MemberMapT
 	FingerTable  FingerTableT
 	SuspicionMap SuspicionMapT
+	Rejoin       bool
 }
 
 func Live(introducer bool, logf string) {
@@ -231,8 +233,13 @@ func listen() {
 		switch replyCode {
 		// We successfully joined the network
 		// Decode the membership gob and merge with our own membership list.
+		// Register ourselves as a rejoin if possible.
 		case spec.JOINREPLY:
 			theirMemberMap := spec.DecodeMemberMap(bb[1])
+			rejoin = theirMemberMap[selfPID].Rejoin
+			if rejoin {
+				log.Printf("[REJOIN] Recognized as a REJOIN")
+			}
 			spec.MergeMemberMaps(&memberMap, &theirMemberMap)
 			spec.ComputeFingerTable(&fingerTable, &memberMap, selfPID, m)
 			log.Printf(
@@ -396,6 +403,6 @@ func (l *Membership) Self(_ int, reply *Self) error {
 	if logHeartbeats {
 		log.Println("[RPC] Membership.Self called")
 	}
-	*reply = Self{m, selfPID, memberMap, fingerTable, suspicionMap}
+	*reply = Self{m, selfPID, memberMap, fingerTable, suspicionMap, rejoin}
 	return nil
 }
