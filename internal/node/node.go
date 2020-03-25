@@ -25,6 +25,7 @@ var selfPID int
 
 // [PID:*memberNode]
 
+var rejoinMap = make(map[int]bool)
 var memberMap = make(map[int]*spec.MemberNode)
 
 // [PID:Unix timestamp at time of death]
@@ -156,11 +157,22 @@ func listenForJoins() {
 					m,
 				)
 			}
+			_, rejoin := rejoinMap[newPID]
 			newNode := &spec.MemberNode{
 				IP:        remoteaddr.IP.String(),
 				Timestamp: time.Now().Unix(),
 				Alive:     true,
+				Rejoin:    rejoin,
 			}
+			if rejoin {
+				log.Printf(
+					"[JOIN] (PID=%d) (IP=%s) (T=%d) Identified as rejoin!",
+					newPID,
+					(*newNode).IP,
+					(*newNode).Timestamp,
+				)
+			}
+			rejoinMap[newPID] = true
 
 			spec.SetMemberMap(newPID, newNode, &memberMap)
 			spec.RefreshMemberMap(selfIP, selfPID, &memberMap)
@@ -240,7 +252,7 @@ func listen() {
 
 			leaving, ok := memberMap[leavingPID]
 			if !ok {
-				log.Fatalf("[LEAVE] PID=%s not in memberMap", leavingPID)
+				log.Fatalf("[LEAVE] PID=%d not in memberMap", leavingPID)
 			}
 
 			// Add to suspicionMap so that none-linked nodes will eventually hear about this.
