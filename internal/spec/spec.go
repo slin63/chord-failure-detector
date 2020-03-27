@@ -146,8 +146,9 @@ func ComputeFingerTable(ft *map[int]int, memberMap *map[int]*MemberNode, selfPID
 	fingerTableSem.Unlock()
 }
 
-// Periodically compare our suspicion array & memberMap and remove
-// nodes who have been dead for a sufficiently long time
+// Compare our suspicion array & memberMap and remove
+// nodes who have been dead for a sufficiently long time.
+// Called before dispatching heartbeats.
 // from https://courses.physics.illinois.edu/cs425/fa2019/L6.FA19.pdf
 // If the heartbeat has not increased for more than Tfail [s], the member is considered failed
 // And after a further Tcleanup [s], it will delete the member from the list
