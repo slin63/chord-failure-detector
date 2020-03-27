@@ -1,4 +1,4 @@
-# Chord-ish ![](./images/chord.png)
+# ![](./images/chord.png) Chord-ish 
 
 A play implementation of the Chord protocol as described in [this paper](https://pdos.csail.mit.edu/papers/ton:chord/paper-ton.pdf) for use as the membership and failure detection layers for [*Chord-ish DeFiSh*](https://github.com/slin63/chord-dfs).
 
@@ -64,15 +64,15 @@ func MHash(address string, m int) int {
 }
 ```
 
-After a node is assigned onto the ring, it generates a *finger table*. Finger tables are Chord-ish's routing tables, key/value maps of length *m* where the corresponding keys and values are as follows
+After a node is assigned onto the ring, it generates a *finger table*. Finger tables are Chord-ish's routing tables, key/value maps of length *m* where the corresponding keys and values are as follows:
 
 - `key = some integer i ranging from (0, m)`
 - `value = (first node with PID >= (currentNode.PID + 2**(i - 1)) % (2**m))` where `a**b` = *a<sup>b</sup>*.
-  - The ` … % (2 ** m)` is important here. If some calculated value exceeds 2<sup>m</sup>-1, then this module operator "wraps" the calculated value back around the virtual ring. For an example, look at the visualization of the finger table calculations (the blue arrows) in the figure below.
+  - The ` … % (2 ** m)` is important here. If some calculated value exceeds 2<sup>m</sup>-1, then this modulo "wraps" the calculated value back around the ring. For an example, look at the visualization of the finger table calculations (the blue arrows) in the figure below.
 
 Finger tables are used in canonical Chord to enable *O(log n)* lookups from node to node, but because Chord-ish won't actually be doing any storing of its own, finger tables here are only used to disseminate heartbeat and graceful termination messages. Doesn't that defeat the purpose of going through all the trouble of implementing Chord? Haha! Yes. No one's paying me to do this so I can do a bad job if I want. Not that I wouldn't do a bad job if someone was paying me, either.
 
-Besides finger tables, the other essential piece of state held by each node is a *membership map*. Membership maps are described as follows:
+Another essential piece of state held by each node is a *membership map*. Membership maps are described as follows:
 
 ```go
 // memberMap maps a node's PID to information about that node.
@@ -107,7 +107,8 @@ Chord-ish's heartbeating system works very similarly. Any functioning node will,
 1. *Update* the timestamp in its own entry in the membership map to be `time.Now().Unix()`
 2. *Send* heartbeats to all nodes in its finger table, as well as 2 of its immediate successors and its predecessor on the ring. For example, in the above figure, N252's would heartbeat to the following nodes:
    - N175, N254, N16, N32, N64, N128. Notice that we excluded N85 and N175. This is no issue though, as we can safely assume that these two excluded nodes will receive N252's heartbeat information next round from the many nodes that received N252's heartbeat information in this round of heartbeats.
-3. *Listen* for heartbeats from other nodes.
+
+Nodes will continuously *listen* for heartbeats from other nodes, regardless of what it is doing.
 
 These heartbeats can be used to identify failures and learn about membership changes. Each heartbeat contains the following information: 
 
@@ -123,24 +124,24 @@ On receiving a heartbeat, the node performs two actions.
 
 1. Merges its member map with that of the incoming membership map using the following code:
 
-    - ```go
-      // Loop through entries in the incoming member map
-      for PID, node := range *theirs { 
-      // See if we also have this entry    
-      _, exists := (*ours)[PID] 
-      // If so, replace our entry with theirs if theirs is more recent
-      if exists { 
-      	if (*theirs)[PID].Timestamp > (*ours)[PID].Timestamp {
-      		(*ours)[PID] = node
-      	}
-      // If we don't have this entry, add it to our map.
-      } else {
-      	(*ours)[PID] = node
-      }
-      ```
+```go
+// Loop through entries in the incoming member map
+for PID, node := range *theirs { 
+// See if we also have this entry    
+_, exists := (*ours)[PID] 
+// If so, replace our entry with theirs if theirs is more recent
+if exists { 
+  if (*theirs)[PID].Timestamp > (*ours)[PID].Timestamp {
+    (*ours)[PID] = node
+  }
+// If we don't have this entry, add it to our map.
+} else {
+  (*ours)[PID] = node
+}
+```
 2. Updates its finger table.
 
-Although nodes only heartbeat to nodes in their finger tables, all nodes within a group become up to date with membership information fairly quickly due to the gossipy nature of this heartbeating protocol. Some issues exist, however. 
+Although nodes only heartbeat to nodes in their finger tables and their immediate successors / predecessor, all nodes within a group become up to date with membership information fairly quickly due to the gossipy nature of this heartbeating protocol. Some issues exist, however. 
 
 For example, in a poorly balanced ring “cold spots” can appear where some nodes can take so long to have their heartbeats propagated that other nodes begin to suspect that they have failed. The mechanism by which these suspicions are created is described in the next section.
 
@@ -169,6 +170,17 @@ Whenever `CollectGarbage` is run, it executes according to the flowchart below, 
 
 After it finishes its pass over the membership map, it does another pass over the suspicion map. Here, it simply checks whether or not to keep nodes under suspicion or to outright delete them.![](./images/collectGarbageSuspicionMap.png)
 
-Why even include this step of adding nodes to a suspicion map and differentiating from `timeFailure` and `timeCleanup`? Imagine a scenario where `CollectGarbage` works by deleting a node *F* from the membership map the moment `(time.Now() - node.Timestamp) > timeFailure`. Immediately after this deletion, *F* recovers from a brief network outage and becomes active again. If the introducer is available, *F* should be able to rejoin the group soon. However, there is some downtime between *F* coming back online and *F* rejoining the group.
+You might ask: "Why even include this step of adding nodes to a suspicion map and differentiating from `timeFailure` and `timeCleanup`? Why force yourself to manage more state when failure detection would work fine without it?"
 
-Using Chord-ish's failure detector's suspicion mechanism, while *F* is down processes are still actively trying to send it membership information. In this situation, as soon as *F* comes back online it begins receiving membership information and has minimal to no downtime before it can populate its finger table and begin heartbeating again.
+Imagine a scenario where `CollectGarbage` works by deleting a node *F* from the membership map the moment `(time.Now() - node.Timestamp) > timeFailure`. Immediately after this deletion, *F* recovers from a brief network outage and becomes active again. If the introducer is available, *F* should be able to rejoin the group soon. However, there is some downtime between *F* coming back online and *F* rejoining the group.
+
+Using Chord-ish's suspicion mechanism, while *F* is down nodes are still actively trying to send it membership information. In this situation, as soon as *F* comes back online it begins receiving membership information and has minimal to no downtime before it can populate its finger table and begin heartbeating again.
+
+### Summary
+
+Chord-ish is a membership layer that can tolerate random failures and membership changes with relative ease, as long as you don't try to use it to actually do anything intensive or try to do too much damage. It was a great learning experience and my first big golang project. There are many things about it that I'm not proud of. But there are a lot of things about it that I am. 
+
+The end.
+
+
+
