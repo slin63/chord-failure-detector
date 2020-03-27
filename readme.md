@@ -31,14 +31,14 @@ First, some definitions and context.
 
 *Consistent hashing* is the process by which a hash function is used to distribute *K* objects across *N* points on a virtual ring, where *N = 2<sup>m</sup> - 1*. Here, *m* is an arbitrary constant that can be made larger or smaller, correlating directly with the expected number of nodes that the protocol will be supporting. 
 
-Why is this useful? Let's say that we have a distributed key/value store that assigns server positions and key/value assignments with the following formulas: 
+Why is this useful? Let's say that we have a distributed key/value store that assigns server positions and key/value assignments as follows: 
 
 ```go
 assignedPoint := hash(IPAddr) % (Number of servers)
 assignedServer := hash(key) % (Number of servers)
 ```
 
-Servers and key/value pairs are still evenly distributed here, yes, but if the number of servers is ever changed for something like a horizontal up or downscale, downtime is needed to rehash nodes and key/value pairs on to newly evaluated `assignedPoints` and `assignedServers`. Consistent hashing assigns inputs to points using a function that is independent of the total number of node within a group, meaning we can scale up or down without needing downtime to rehash.
+Servers and key/value pairs are still evenly distributed here, yes, but if the number of servers is ever changed for something like a horizontal up or downscale, downtime is needed to rehash nodes and key/value pairs on to newly evaluated `assignedPoints` and `assignedServers`. Consistent hashing assigns inputs to points using a function that is independent of the total number of nodes within a group, meaning we can scale up or down without needing downtime to rehash.
 
 Chord-ish works by using a *consistent hashing* function to assign the IP addresses (or any unique identifier) of an arbitrary number of nodes onto a virtual ring with 2<sup>m</sup> - 1 points. Consistent hashing ideally distributes all nodes evenly across the ring, which leads to some built-in load-balancing which can be useful when using Chord-ish's node's as key/value stores, as we do in Chord-ish DeFiSh. 
 
@@ -94,7 +94,7 @@ Below is a diagram that demonstrates what's been described so far. A node is bor
 
 "But wait!", you exclaim, "how does the node know where the ring exists so it can join the group in the first place?" Simple! Chord-ish depends on an *introducer* node that the new or rejoining nodes can rely on to exist at a fixed IP address, from which they can request group information. This group information comes in the form of a populated membership map.
 
-What happens if the machine running the introducer loses power, is disappeared by some powerful foreign government, or just gets busy with life and doesn't respond to its messages anymore, as all things might inevitably do in distributed systems?
+What happens if the machine running the introducer loses power, is disappeared by some powerful foreign government, or just gets busy with life and doesn't respond to its messages anymore, as all things might do in distributed systems?
 
 Communication & failure detection within the group, by Chord's nature, proceeds as normally. However, new nodes or rejoining nodes are unable to connect to the group and will continuously ping the introducer node until they get a response.
 
@@ -106,11 +106,11 @@ Chord-ish's heartbeating system works very similarly. Any functioning node will,
 
 1. *Update* the timestamp in its own entry in the membership map to be `time.Now().Unix()`
 2. *Send* heartbeats to all nodes in its finger table, as well as 2 of its immediate successors and its predecessor on the ring. For example, in the above figure, N252's would heartbeat to the following nodes:
-   - N175, N254, N16, N32, N64, N128. Notice that we excluded N85 and N175. This is no issue though, as we can safely assume that these two excluded nodes will receive N252's heartbeat information next round from the many nodes that received N252's heartbeat information in this round of heartbeats.
+   - N175, N254, N16, N32, N64, N128. Notice that we excluded N85 and N175. This is no issue though, as we can safely assume that these two excluded nodes will receive N252's heartbeat information next round from the many nodes that received N252's heartbeat information in the last round of heartbeats.
 
-Nodes will continuously *listen* for heartbeats from other nodes, regardless of what it is doing.
+Nodes will continuously *listen* for heartbeats from other nodes, regardless of what they are doing.
 
-These heartbeats can be used to identify failures and learn about membership changes. Each heartbeat contains the following information: 
+These heartbeats can be used to identify failures and learn about membership changes. Below is a little visualization of the internals of a heartbeat and a brief description.
 
 - `1` , the internal integer constant indicating that this message is a heartbeat
 
@@ -120,7 +120,18 @@ These heartbeats can be used to identify failures and learn about membership cha
 
   ![](./images/heartbeats.png)
 
-On receiving a heartbeat, the node performs two actions.
+The actual heartbeat messages themselves, and all other communication in Chord-ish, is done via comma delimited strings encoded as bytes, as shown below. 
+
+```go
+message := []byte(fmt.Sprintf(
+	"%d%s%s%s%d",
+	spec.HEARTBEAT, delimiter,
+	spec.EncodeMemberMap(&memberMap), delimiter,
+	selfPID,
+))
+```
+
+These messages are then sent to other nodes over [UDP](https://en.wikipedia.org/wiki/User_Datagram_Protocol). On receiving a heartbeat, a node performs two actions.
 
 1. Merges its member map with that of the incoming membership map using the following code:
 
@@ -141,13 +152,13 @@ if exists {
 ```
 2. Updates its finger table.
 
-Although nodes only heartbeat to nodes in their finger tables and their immediate successors / predecessor, all nodes within a group become up to date with membership information fairly quickly due to the gossipy nature of this heartbeating protocol. Some issues exist, however. 
+Although nodes only heartbeat to nodes in their finger tables, two successors, and a single predecessor, all nodes within a group become up to date with membership information fairly quickly due to the gossipy nature of this heartbeating protocol. Some issues exist, however. 
 
 For example, in a poorly balanced ring “cold spots” can appear where some nodes can take so long to have their heartbeats propagated that other nodes begin to suspect that they have failed. The mechanism by which these suspicions are created is described in the next section.
 
 ### Failure detection & Suspicion Mechanism
 
-Chord-ish checks for failures immediately prior to dispatching heartbeats. This assures that information sent in a heartbeat is as accurate as can be allowed. Its failure detection mechanism, called `CollectGarbage` requires another piece of state, the *suspicion map*, which is defined as follows:
+Chord-ish checks for failures immediately prior to dispatching heartbeats. This assures that information sent in a heartbeat is as accurate as can be allowed. Its failure detection mechanism, called `CollectGarbage`, requires another piece of state, the *suspicion map*. The suspicion map is defined below.
 
 ```go
 // [PID:Unix timestamp at time of suspicion detection]
@@ -162,9 +173,9 @@ const timeFail = 6
 const timeCleanup = 12 
 ```
 
-The suspicion map is used in conjunction with two integer constants, `timeFail` and `timeCleanup`. Nodes in the suspicion map are not treated any differently than non-suspected nodes, save for the fact that suspected nodes will have `node.Alive == false` in this current node's membership map, which will be shared with other nodes through heartbeats.
+Nodes in the suspicion map are not treated any differently than non-suspected nodes, save for the fact that suspected nodes will have `node.Alive == false` in a sufficiently up-to-date node's membership map, which will be shared with other nodes through heartbeats.
 
-Whenever `CollectGarbage` is run, it executes according to the flowchart below, doing its first pass on the membership map and assigning things to either be ignored, added to the suspicion map, or outright deleted.
+The suspicion map is used in conjunction with two integer constants, `timeFail` and `timeCleanup`. Whenever `CollectGarbage` is run, it executes according to the flowchart below, doing its first pass on the membership map and assigning things to either be ignored, added to the suspicion map, or outright deleted from the membership map and suspicion map.
 
 ![](./images/collectGarbageMembermapPass.png)
 
@@ -172,13 +183,13 @@ After it finishes its pass over the membership map, it does another pass over th
 
 You might ask: "Why even include this step of adding nodes to a suspicion map and differentiating from `timeFailure` and `timeCleanup`? Why force yourself to manage more state when failure detection would work fine without it?"
 
-Imagine a scenario where `CollectGarbage` works by deleting a node *F* from the membership map the moment `(time.Now() - node.Timestamp) > timeFailure`. Immediately after this deletion, *F* recovers from a brief network outage and becomes active again. If the introducer is available, *F* should be able to rejoin the group soon. However, there is some downtime between *F* coming back online and *F* rejoining the group.
+Imagine a scenario where `CollectGarbage` works by deleting a node *F* from the membership map the moment `(time.Now() - node.Timestamp) > timeFailure`. Immediately after this deletion, *F* recovers from a brief network outage and becomes active again. If the introducer is available, *F* should be able to rejoin the group without issues. However, there is some downtime between *F* coming back online and *F* rejoining the group.
 
 Using Chord-ish's suspicion mechanism, while *F* is down nodes are still actively trying to send it membership information. In this situation, as soon as *F* comes back online it begins receiving membership information and has minimal to no downtime before it can populate its finger table and begin heartbeating again.
 
 ### Summary
 
-Chord-ish is a membership layer that can tolerate random failures and membership changes with relative ease, as long as you don't try to use it to actually do anything intensive or try to do too much damage. It was a great learning experience and my first big golang project. There are many things about it that I'm not proud of. But there are a lot of things about it that I am. 
+Chord-ish is a membership layer that can tolerate random failures and membership changes with relative ease, as long as you don't try to use it to actually do anything. It was a great learning experience and my first big Golang project. There are many things about it that I'm not proud of. But there are a lot of things about it that I am. 
 
 The end.
 
