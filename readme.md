@@ -7,7 +7,7 @@ A play implementation of the Chord protocol as described in [this paper](https:/
 1. `docker-compose build && docker-compose up --scale worker=<num-workers>`
    1. For `num-workers`, it's stable for 3 - 5 workers. You can scale to as many nodes as you want though; if you don't mind Docker eating all your CPU.
 
-## Chord-ish, briefly
+## Chord-ish, briefly (also available on my blog: [here](https://www.chronicpizza.net/posts/chordish/))
 
 ### Membership & Failure Detection
 
